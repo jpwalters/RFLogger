@@ -1,0 +1,219 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+env:
+  QT_VERSION: "6.7.3"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows
+            artifact: RFLogger-Windows-x64
+          - os: macos-14
+            name: macOS-arm64
+            artifact: RFLogger-macOS-arm64
+            cmake_extra: -DCMAKE_OSX_ARCHITECTURES=arm64
+          - os: ubuntu-latest
+            name: Linux
+            artifact: RFLogger-Linux-x64
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          modules: 'qtserialport'
+          cache: true
+
+      - name: Install Ninja
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Set up MSVC dev environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y \
+            libgl1-mesa-dev \
+            libxkbcommon-dev \
+            libudev-dev
+
+      - name: Extract version from tag
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.0.0-dev"
+          fi
+          echo "RELEASE_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Building version: $VERSION"
+
+      - name: Configure CMake
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DRFLOGGER_VERSION="${{ env.RELEASE_VERSION }}"
+          -DRFLOGGER_BUILD_TESTS=ON
+          -DRFLOGGER_ENABLE_RTLSDR=OFF
+          ${{ runner.os == 'Linux' && '-GNinja' || '' }}
+          ${{ matrix.cmake_extra || '' }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Run tests
+        working-directory: build
+        run: ctest --output-on-failure -C Release
+
+      # ── Package ──────────────────────────────────────────────────────────
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p staging
+          cp build/Release/RFLogger.exe staging/ 2>/dev/null || cp build/RFLogger.exe staging/
+          cd staging
+          windeployqt.exe RFLogger.exe --no-translations --no-opengl-sw
+          cd ..
+          7z a "${{ matrix.artifact }}.zip" ./staging/*
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          APP="build/RFLogger.app"
+          macdeployqt "$APP" -dmg
+          mv build/RFLogger.dmg "${{ matrix.artifact }}.dmg"
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p staging
+          cp build/RFLogger staging/
+          tar czf "${{ matrix.artifact }}.tar.gz" -C staging .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}.zip
+            ${{ matrix.artifact }}.dmg
+            ${{ matrix.artifact }}.tar.gz
+          if-no-files-found: ignore
+
+      # ── macOS Signing & Notarization ─────────────────────────────────────
+
+      - name: Import signing certificate
+        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          P12_B64:  ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          P12_PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -o pipefail
+          CLEAN_P12_B64=$(echo "$P12_B64" | tr -d '[:space:]')
+          CLEAN_PASS=$(echo "$P12_PASS" | tr -d '\n\r')
+
+          echo "$CLEAN_P12_B64" | base64 --decode > /tmp/DeveloperID.p12
+
+          # Re-encode with legacy ciphers for macOS Keychain compatibility
+          openssl pkcs12 -nodes -in /tmp/DeveloperID.p12 \
+            -passin "pass:$CLEAN_PASS" -out /tmp/cert.pem
+          openssl pkcs12 -export -in /tmp/cert.pem \
+            -passout "pass:$CLEAN_PASS" -out /tmp/DeveloperID_legacy.p12
+          rm -f /tmp/DeveloperID.p12 /tmp/cert.pem
+
+          KEYCHAIN_PASS=$(openssl rand -hex 16)
+          security create-keychain -p "$KEYCHAIN_PASS" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASS" build.keychain
+          security set-keychain-settings -lut 3600 build.keychain
+
+          security import /tmp/DeveloperID_legacy.p12 -k build.keychain \
+            -P "$CLEAN_PASS" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PASS" build.keychain
+
+          rm -f /tmp/DeveloperID_legacy.p12
+
+      - name: Sign and notarize macOS app
+        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          APPLE_TEAM_ID:         ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_NOTARY_USER:     ${{ secrets.APPLE_NOTARY_USER }}
+          APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+        run: |
+          APP="build/RFLogger.app"
+          IDENTITY="Developer ID Application: ${{ secrets.APPLE_IDENTITY_NAME }}"
+
+          codesign --force --deep --options runtime \
+            --sign "$IDENTITY" "$APP"
+
+          # Build DMG for notarization
+          macdeployqt "$APP" -dmg
+          DMG="build/RFLogger.dmg"
+
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_NOTARY_USER" \
+            --password "$APPLE_NOTARY_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait --timeout 10m
+
+          xcrun stapler staple "$DMG"
+          mv "$DMG" "${{ matrix.artifact }}.dmg"
+
+  # ── Release ──────────────────────────────────────────────────────────────
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    name: Create Release
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate checksums
+        working-directory: artifacts
+        run: |
+          find . -type f \( -name "*.zip" -o -name "*.dmg" -o -name "*.tar.gz" \) \
+            -exec sha256sum {} + | sort > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          generate_release_notes: true
+          files: |
+            artifacts/**/*.zip
+            artifacts/**/*.dmg
+            artifacts/**/*.tar.gz
+            artifacts/SHA256SUMS.txt

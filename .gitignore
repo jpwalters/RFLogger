@@ -1,0 +1,44 @@
+# Build
+build/
+cmake-build-*/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.user
+*.swp
+*~
+
+# Qt Creator
+*.pro.user*
+*.qbs.user*
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# External downloads (fetched at build time)
+external/qcustomplot/qcustomplot.h
+external/qcustomplot/qcustomplot.cpp
+
+# Compiled
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+*.exe
+*.app
+
+# Distribution
+dist/
+*.dmg
+*.AppImage
+*.msi
+*.zip
+*.tar.gz
+aqtinstall.log

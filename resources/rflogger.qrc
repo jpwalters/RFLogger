@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="icons/rflogger.png">icons/rflogger.png</file>
+    </qresource>
+</RCC>
