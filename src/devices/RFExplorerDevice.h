@@ -44,7 +44,7 @@ private slots:
 private:
     static constexpr int BAUD_RATE = 500000;
     static constexpr int MIN_SWEEP_POINTS_BASIC = 112;
-    static constexpr int MAX_SWEEP_POINTS_BASIC = 112;
+    static constexpr int MAX_SWEEP_POINTS_BASIC = 4096;
     static constexpr int MIN_SWEEP_POINTS_PLUS = 112;
     static constexpr int MAX_SWEEP_POINTS_PLUS = 65535;
 

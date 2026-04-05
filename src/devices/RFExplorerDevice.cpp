@@ -155,34 +155,64 @@ bool RFExplorerDevice::configure(double startFreqHz, double stopFreqHz, int swee
     m_desiredStopHz = stopFreqHz;
     m_desiredSweepPoints = sweepPoints;
 
-    // SET_CONFIG: '#' + length(0x20) + 'C2-F:' + start_khz(7 digits) + ',' + stop_khz(7 digits) + ',-0XXX,YYYY'
-    // start/stop in kHz, 7-digit zero-padded
+    // Send HOLD to stop the device data dump, then clear any buffered
+    // data so the parser starts cleanly with the new configuration.
+    QByteArray holdCmd(4, '\0');
+    holdCmd[0] = '#';
+    holdCmd[1] = 0x04;
+    holdCmd[2] = 'C';
+    holdCmd[3] = 'H';
+    sendCommand(holdCmd);
+    m_buffer.clear();
+
+    // Set sweep points BEFORE frequency config so the device applies both
+    // before it starts the new sweep stream.
+    if (sweepPoints != 112) {
+        if (m_isPlusModel) {
+            // SET_SWEEP_POINTS_LARGE: '#' + 0x06 + 'Cj' + MSB + LSB
+            QByteArray sweepCmd(6, '\0');
+            sweepCmd[0] = '#';
+            sweepCmd[1] = 0x06;
+            sweepCmd[2] = 'C';
+            sweepCmd[3] = 'j';
+            sweepCmd[4] = static_cast<char>((sweepPoints >> 8) & 0xFF);
+            sweepCmd[5] = static_cast<char>(sweepPoints & 0xFF);
+            sendCommand(sweepCmd);
+        } else {
+            // SET_SWEEP_POINTS (high-res): '#' + 0x05 + 'CJ' + encoded_byte
+            // Snap to multiple of 16; encoded value = (points / 16) - 1
+            int snapped = (sweepPoints / 16) * 16;
+            if (snapped < 16) snapped = 16;
+            if (snapped > MAX_SWEEP_POINTS_BASIC) snapped = MAX_SWEEP_POINTS_BASIC;
+            QByteArray sweepCmd(5, '\0');
+            sweepCmd[0] = '#';
+            sweepCmd[1] = 0x05;
+            sweepCmd[2] = 'C';
+            sweepCmd[3] = 'J';
+            sweepCmd[4] = static_cast<char>((snapped / 16) - 1);
+            sendCommand(sweepCmd);
+        }
+    }
+
+    // SET_CONFIG: '#' + 0x20 + 'C2-F:' + start_khz(7 digits) + ',' + stop_khz(7 digits) + ',top_dBm(4 chars),bottom_dBm(4 chars)'
+    // start/stop in kHz, 7-digit zero-padded; amplitude fields are 4 ASCII chars each (e.g. "-010","-120")
     int startKhz = static_cast<int>(std::floor(startFreqHz / 1000.0));
     int stopKhz = static_cast<int>(std::floor(stopFreqHz / 1000.0));
 
     QString startStr = QString("%1").arg(startKhz, 7, 10, QChar('0'));
     QString stopStr = QString("%1").arg(stopKhz, 7, 10, QChar('0'));
 
-    // Amplitude range: top dBm and bottom dBm
-    QString configPayload = QString("C2-F:%1,%2,-0110,-120").arg(startStr, stopStr);
+    // Amplitude range: top dBm and bottom dBm (4 chars each per UART API spec)
+    QString configPayload = QString("C2-F:%1,%2,-010,-120").arg(startStr, stopStr);
     QByteArray cmd;
     cmd.append('#');
-    cmd.append(static_cast<char>(configPayload.length() + 2)); // +2 for '#' and length byte
+    cmd.append(static_cast<char>(configPayload.length() + 2)); // +2 for '#' and length byte = 32
     cmd.append(configPayload.toLatin1());
     sendCommand(cmd);
 
-    // For PLUS models, set sweep points if not default 112
-    if (m_isPlusModel && sweepPoints != 112) {
-        // SET_SWEEP_POINTS_LARGE: '#' + length(0x06) + 'Cj' + MSB + LSB
-        QByteArray sweepCmd(6, '\0');
-        sweepCmd[0] = '#';
-        sweepCmd[1] = 0x06;
-        sweepCmd[2] = 'C';
-        sweepCmd[3] = 'j';
-        sweepCmd[4] = static_cast<char>((sweepPoints >> 8) & 0xFF);
-        sweepCmd[5] = static_cast<char>(sweepPoints & 0xFF);
-        sendCommand(sweepCmd);
-    }
+    // Explicitly request config so the device sends back updated #C2-F: response,
+    // which re-enables sweep processing (m_configReceived = true via processConfigData).
+    requestConfig();
 
     return true;
 }
@@ -240,7 +270,10 @@ void RFExplorerDevice::onDataReady()
 
 void RFExplorerDevice::stripEosSequences(QByteArray& buffer)
 {
-    // PLUS models send EOS: FF FE FF FE 00
+    // PLUS models send EOS: FF FE FF FE 00 between messages.
+    // Strip all occurrences. Since amplitude byte 0x00 (0 dBm) is extremely
+    // rare with the preceding FF FE FF FE pattern, false positives are
+    // negligible, and the positional scan data parsing recovers gracefully.
     static const QByteArray eos("\xFF\xFE\xFF\xFE\x00", 5);
     int idx;
     while ((idx = buffer.indexOf(eos)) != -1) {
@@ -309,6 +342,21 @@ void RFExplorerDevice::processBuffer()
                 break;
             int sweepPoints = static_cast<unsigned char>(m_buffer[2]);
             int totalLen = 3 + sweepPoints + 2; // $S + count_byte + data + \r\n
+            if (m_buffer.size() < totalLen)
+                break;
+            QByteArray scanData = m_buffer.mid(3, sweepPoints);
+            m_buffer.remove(0, totalLen);
+            if (m_configReceived && m_scanning)
+                processScanData(scanData, sweepPoints);
+        }
+        else if (m_buffer.startsWith("$s")) {
+            // SCAN_DATA_EXT (high-res) — $s + 1 byte encoded count + <decoded_count> amplitude bytes + \r\n
+            // Actual points = (encoded_byte + 1) * 16
+            if (m_buffer.size() < 3)
+                break;
+            int encoded = static_cast<unsigned char>(m_buffer[2]);
+            int sweepPoints = (encoded + 1) * 16;
+            int totalLen = 3 + sweepPoints + 2; // $s + encoded_byte + data + \r\n
             if (m_buffer.size() < totalLen)
                 break;
             QByteArray scanData = m_buffer.mid(3, sweepPoints);

@@ -59,7 +59,8 @@ jobs:
           sudo apt-get install -y \
             libgl1-mesa-dev \
             libxkbcommon-dev \
-            libudev-dev
+            libudev-dev \
+            libcups2-dev
 
       - name: Extract version from tag
         shell: bash
@@ -135,6 +136,12 @@ jobs:
           P12_PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           set -o pipefail
+
+          if [ -z "$P12_B64" ] || [ -z "$P12_PASS" ]; then
+            echo "::error::APPLE_CERTIFICATE_P12 and/or APPLE_CERTIFICATE_PASSWORD secrets are not set."
+            exit 1
+          fi
+
           CLEAN_P12_B64=$(echo "$P12_B64" | tr -d '[:space:]')
           CLEAN_PASS=$(echo "$P12_PASS" | tr -d '\n\r')
 
