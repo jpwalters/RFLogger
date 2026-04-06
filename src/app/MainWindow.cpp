@@ -12,6 +12,7 @@
 #include "ui/MarkerPanel.h"
 #include "ui/ExportDialog.h"
 #include "ui/ExportPanel.h"
+#include "ui/FrequencyListPanel.h"
 #include "export/WwbExporter.h"
 #include "export/GenericCsvExporter.h"
 
@@ -66,9 +67,11 @@ MainWindow::MainWindow(QWidget* parent)
 
     connect(m_deviceManager, &DeviceManager::deviceConnected, this, [this](ISpectrumDevice* device) {
         updateDeviceLimits(device);
+        m_frequencyListPanel->setDemodulationAvailable(device->supportsDemodulation());
         statusBar()->showMessage(tr("Connected to %1").arg(device->deviceName()));
     });
     connect(m_deviceManager, &DeviceManager::deviceDisconnected, this, [this]() {
+        m_frequencyListPanel->setDemodulationAvailable(false);
         statusBar()->showMessage(tr("Device disconnected — waiting for device..."));
     });
     connect(m_deviceManager, &DeviceManager::errorOccurred, this, [this](const QString& msg) {
@@ -116,6 +119,7 @@ void MainWindow::createMenus()
 
     viewMenu->addSeparator();
     viewMenu->addAction(m_markerDock->toggleViewAction());
+    viewMenu->addAction(m_frequencyListDock->toggleViewAction());
 
     viewMenu->addSeparator();
     auto* showLiveAction = viewMenu->addAction(tr("Show &Live Trace"));
@@ -204,6 +208,19 @@ void MainWindow::createDockWidgets()
     m_markerDock->setWidget(m_markerPanel);
     m_markerDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetClosable);
     addDockWidget(Qt::RightDockWidgetArea, m_markerDock);
+
+    // Right dock: Detected Frequencies (below markers)
+    m_frequencyListDock = new QDockWidget(tr("Detected Frequencies"), this);
+    m_frequencyListPanel = new FrequencyListPanel;
+    m_frequencyListDock->setWidget(m_frequencyListPanel);
+    m_frequencyListDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetClosable);
+    addDockWidget(Qt::RightDockWidgetArea, m_frequencyListDock);
+    splitDockWidget(m_markerDock, m_frequencyListDock, Qt::Vertical);
+
+    connect(m_frequencyListPanel, &FrequencyListPanel::frequencySelected,
+            m_spectrumWidget, &SpectrumWidget::setHighlightFrequency);
+    connect(m_frequencyListPanel, &FrequencyListPanel::frequencyDeselected,
+            m_spectrumWidget, &SpectrumWidget::clearHighlight);
 }
 
 void MainWindow::onDisconnect()
@@ -325,6 +342,9 @@ void MainWindow::onSweepReady(const SweepData& sweep)
     m_waterfallWidget->addSweep(sweep);
     m_captureControls->onSweepReceived();
     m_exportPanel->setExportEnabled(true);
+
+    // Feed sweep to frequency list panel for peak detection
+    m_frequencyListPanel->onSweepReceived(m_session->maxHold());
 }
 
 void MainWindow::onExport()
@@ -454,6 +474,9 @@ void MainWindow::saveSettings()
     SettingsManager::setValue("capture/startFreqMHz", m_captureControls->startFreqMHz());
     SettingsManager::setValue("capture/stopFreqMHz", m_captureControls->stopFreqMHz());
     SettingsManager::setValue("view/markersVisible", m_markerDock->isVisible());
+    SettingsManager::setValue("view/frequencyListVisible", m_frequencyListDock->isVisible());
+    SettingsManager::setValue("peakDetection/thresholdDb", m_frequencyListPanel->thresholdDb());
+    SettingsManager::setValue("peakDetection/autoRefresh", m_frequencyListPanel->autoRefresh());
 }
 
 void MainWindow::loadSettings()
@@ -468,4 +491,13 @@ void MainWindow::loadSettings()
 
     bool markersVisible = SettingsManager::value("view/markersVisible", true).toBool();
     m_markerDock->setVisible(markersVisible);
+
+    bool freqListVisible = SettingsManager::value("view/frequencyListVisible", true).toBool();
+    m_frequencyListDock->setVisible(freqListVisible);
+
+    double threshDb = SettingsManager::value("peakDetection/thresholdDb", 10.0).toDouble();
+    m_frequencyListPanel->setThresholdDb(threshDb);
+
+    bool autoRefresh = SettingsManager::value("peakDetection/autoRefresh", true).toBool();
+    m_frequencyListPanel->setAutoRefresh(autoRefresh);
 }

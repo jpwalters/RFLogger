@@ -33,6 +33,7 @@ public:
     virtual QString firmwareVersion() const { return {}; }
     virtual QString serialNumber() const { return {}; }
     virtual QString modelName() const { return deviceName(); }
+    virtual bool supportsDemodulation() const { return false; }
 
 signals:
     void sweepReady(const SweepData& sweep);

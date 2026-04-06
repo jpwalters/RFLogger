@@ -12,6 +12,7 @@ class DevicePanel;
 class CaptureControls;
 class MarkerPanel;
 class ExportPanel;
+class FrequencyListPanel;
 class ISpectrumDevice;
 class UpdateChecker;
 
@@ -52,7 +53,9 @@ private:
     CaptureControls* m_captureControls;
     MarkerPanel* m_markerPanel;
     ExportPanel* m_exportPanel;
+    FrequencyListPanel* m_frequencyListPanel;
     QDockWidget* m_markerDock = nullptr;
+    QDockWidget* m_frequencyListDock = nullptr;
     UpdateChecker* m_updateChecker = nullptr;
 
     // Quick-start: show a fast low-res first sweep before switching to full resolution

@@ -184,6 +184,43 @@ void SpectrumWidget::clearAll()
     m_liveGraph->data()->clear();
     m_maxHoldGraph->data()->clear();
     m_averageGraph->data()->clear();
+    clearHighlight();
+    replot();
+}
+
+void SpectrumWidget::setHighlightFrequency(double freqHz)
+{
+    clearHighlight();
+
+    double freqMHz = freqHz / 1'000'000.0;
+
+    m_highlightLine = new QCPItemStraightLine(this);
+    m_highlightLine->point1->setCoords(freqMHz, -200);
+    m_highlightLine->point2->setCoords(freqMHz, 100);
+    m_highlightLine->setPen(QPen(QColor(0, 255, 128), 2, Qt::SolidLine));
+
+    m_highlightLabel = new QCPItemText(this);
+    m_highlightLabel->setPositionAlignment(Qt::AlignTop | Qt::AlignHCenter);
+    m_highlightLabel->position->setCoords(freqMHz, yAxis->range().upper - 2);
+    m_highlightLabel->setText(QString("%1 MHz").arg(freqMHz, 0, 'f', 3));
+    m_highlightLabel->setColor(QColor(0, 255, 128));
+    m_highlightLabel->setFont(QFont(font().family(), 9, QFont::Bold));
+    m_highlightLabel->setPadding(QMargins(4, 2, 4, 2));
+    m_highlightLabel->setBrush(QBrush(QColor(0, 40, 0, 180)));
+
+    replot();
+}
+
+void SpectrumWidget::clearHighlight()
+{
+    if (m_highlightLine) {
+        removeItem(m_highlightLine);
+        m_highlightLine = nullptr;
+    }
+    if (m_highlightLabel) {
+        removeItem(m_highlightLabel);
+        m_highlightLabel = nullptr;
+    }
     replot();
 }
 

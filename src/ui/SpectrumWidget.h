@@ -25,6 +25,8 @@ public:
     void setAmplitudeRange(double minDbm, double maxDbm);
 
     void setMarkers(const QVector<FrequencyMarker>& markers);
+    void setHighlightFrequency(double freqHz);
+    void clearHighlight();
     void clearAll();
 
 signals:
@@ -49,4 +51,7 @@ private:
     QVector<QCPItemStraightLine*> m_markerLines;
     QVector<QCPItemText*> m_markerLabels;
     QVector<FrequencyMarker> m_markers;
+
+    QCPItemStraightLine* m_highlightLine = nullptr;
+    QCPItemText* m_highlightLabel = nullptr;
 };

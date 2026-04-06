@@ -104,6 +104,9 @@ set(RFLOGGER_SOURCES
     src/data/ScanSession.h
     src/data/ScanSession.cpp
     src/data/FrequencyMarker.h
+    src/data/DetectedSignal.h
+    src/data/PeakDetector.h
+    src/data/PeakDetector.cpp
     src/devices/ISpectrumDevice.h
     src/devices/DeviceManager.h
     src/devices/DeviceManager.cpp
@@ -129,6 +132,8 @@ set(RFLOGGER_SOURCES
     src/ui/ExportDialog.cpp
     src/ui/ExportPanel.h
     src/ui/ExportPanel.cpp
+    src/ui/FrequencyListPanel.h
+    src/ui/FrequencyListPanel.cpp
     src/app/MainWindow.h
     src/app/MainWindow.cpp
     src/app/SettingsManager.h
