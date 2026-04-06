@@ -25,6 +25,7 @@
 #include <QCloseEvent>
 #include <QMessageBox>
 #include <QApplication>
+#include <QTimer>
 #include <stdexcept>
 #include <cmath>
 
@@ -227,10 +228,28 @@ void MainWindow::onStartScan(double startHz, double stopHz, int points)
     // Set frequency range on spectrum widget
     m_spectrumWidget->setFrequencyRange(startHz / 1e6, stopHz / 1e6);
 
-    // Configure device
-    if (!device->configure(startHz, stopHz, points)) {
-        statusBar()->showMessage(tr("Failed to configure device"));
-        return;
+    // Quick-start: if the user requests many more points than the device minimum,
+    // do a fast low-resolution first sweep so data appears on screen immediately,
+    // then reconfigure to full resolution.
+    int quickPoints = device->minSweepPoints();
+    if (points > quickPoints * 2) {
+        m_quickStartPending = true;
+        m_fullResStartHz = startHz;
+        m_fullResStopHz = stopHz;
+        m_fullResPoints = points;
+
+        if (!device->configure(startHz, stopHz, quickPoints)) {
+            statusBar()->showMessage(tr("Failed to configure device"));
+            m_quickStartPending = false;
+            return;
+        }
+    } else {
+        m_quickStartPending = false;
+
+        if (!device->configure(startHz, stopHz, points)) {
+            statusBar()->showMessage(tr("Failed to configure device"));
+            return;
+        }
     }
 
     // Connect sweep signals
@@ -257,6 +276,7 @@ void MainWindow::onStartScan(double startHz, double stopHz, int points)
 
 void MainWindow::onStopScan()
 {
+    m_quickStartPending = false;
     auto* device = m_deviceManager->currentDevice();
     if (device && device->isScanning()) {
         device->stopScanning();
@@ -268,6 +288,31 @@ void MainWindow::onStopScan()
 
 void MainWindow::onSweepReady(const SweepData& sweep)
 {
+    // Quick-start: the first sweep was a fast low-res preview.
+    // Show it immediately, then reconfigure to the user's desired resolution.
+    if (m_quickStartPending) {
+        m_quickStartPending = false;
+
+        // Display the preview sweep so the user sees data right away
+        if (m_captureControls->showLive())
+            m_spectrumWidget->updateLive(sweep);
+
+        // Defer the reconfigure to the next event loop iteration.
+        // We are inside a signal handler chain (onDataReady → processBuffer →
+        // sweepReady → here), and sending serial commands synchronously can
+        // cause the device to miss them because Qt cannot process incoming
+        // serial I/O until this handler returns.
+        QTimer::singleShot(0, this, [this]() {
+            auto* device = m_deviceManager->currentDevice();
+            if (device && device->isScanning()) {
+                device->stopScanning();
+                device->configure(m_fullResStartHz, m_fullResStopHz, m_fullResPoints);
+                device->startScanning();
+            }
+        });
+        return;
+    }
+
     m_session->addSweep(sweep);
 
     if (m_captureControls->showLive())

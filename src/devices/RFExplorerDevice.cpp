@@ -194,11 +194,17 @@ bool RFExplorerDevice::configure(double startFreqHz, double stopFreqHz, int swee
 
     m_buffer.clear();
     m_accumBuffer.clear();
-    m_discardCount = 1;  // Skip first stale scan message from old config
+    // The first sweep after reconfiguration often carries stale amplitude
+    // data from the device's internal buffer.  Discard it.
+    m_discardCount = 1;
+
+    // Compute the actual sweep points the device will use (basic models
+    // snap to multiples of 16).
+    int actualPoints = sweepPoints;
 
     // Set sweep points BEFORE frequency config so the device applies both
     // before it starts the new sweep stream.
-    if (sweepPoints != 112) {
+    {
         if (m_isPlusModel) {
             // SET_SWEEP_POINTS_LARGE: '#' + 0x06 + 'Cj' + MSB + LSB
             QByteArray sweepCmd(6, '\0');
@@ -215,6 +221,7 @@ bool RFExplorerDevice::configure(double startFreqHz, double stopFreqHz, int swee
             int snapped = (sweepPoints / 16) * 16;
             if (snapped < 16) snapped = 16;
             if (snapped > MAX_SWEEP_POINTS_BASIC) snapped = MAX_SWEEP_POINTS_BASIC;
+            actualPoints = snapped;
             QByteArray sweepCmd(5, '\0');
             sweepCmd[0] = '#';
             sweepCmd[1] = 0x05;
@@ -241,8 +248,18 @@ bool RFExplorerDevice::configure(double startFreqHz, double stopFreqHz, int swee
     cmd.append(configPayload.toLatin1());
     sendCommand(cmd);
 
-    // Explicitly request config so the device sends back updated #C2-F: response,
-    // which re-enables sweep processing (m_configReceived = true via processConfigData).
+    // Apply the requested config locally so scan data is plotted with the
+    // correct frequency range immediately — without waiting for the device's
+    // config echo (which can occasionally be lost or delayed).
+    m_startFreqHz = startKhz * 1000.0;  // kHz resolution, matching what we sent
+    m_sweepPoints = actualPoints;
+    m_freqStepHz = (actualPoints > 1)
+        ? (stopKhz * 1000.0 - startKhz * 1000.0) / (actualPoints - 1)
+        : 0.0;
+
+    // Still request the config echo so processConfigData() can refine our
+    // values with the device's actual rounding, but do NOT gate scan
+    // processing on it.
     requestConfig();
 
     return true;
@@ -474,7 +491,8 @@ void RFExplorerDevice::processConfigData(const QByteArray& data)
 
 void RFExplorerDevice::processScanData(const QByteArray& data, int sweepPoints)
 {
-    // Discard stale scan messages that were in-flight during reconfiguration
+    // Discard the first sweep after reconfiguration — the device often sends
+    // stale amplitude data from its internal buffer.
     if (m_discardCount > 0) {
         --m_discardCount;
         return;

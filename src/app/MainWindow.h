@@ -54,4 +54,10 @@ private:
     ExportPanel* m_exportPanel;
     QDockWidget* m_markerDock = nullptr;
     UpdateChecker* m_updateChecker = nullptr;
+
+    // Quick-start: show a fast low-res first sweep before switching to full resolution
+    bool m_quickStartPending = false;
+    double m_fullResStartHz = 0.0;
+    double m_fullResStopHz = 0.0;
+    int m_fullResPoints = 0;
 };
