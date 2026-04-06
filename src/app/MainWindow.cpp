@@ -11,6 +11,9 @@
 #include "ui/CaptureControls.h"
 #include "ui/MarkerPanel.h"
 #include "ui/ExportDialog.h"
+#include "ui/ExportPanel.h"
+#include "export/WwbExporter.h"
+#include "export/GenericCsvExporter.h"
 
 #include <QSplitter>
 #include <QDockWidget>
@@ -23,6 +26,7 @@
 #include <QMessageBox>
 #include <QApplication>
 #include <stdexcept>
+#include <cmath>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -40,7 +44,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     splitter->addWidget(m_spectrumWidget);
     splitter->addWidget(m_waterfallWidget);
-    splitter->setStretchFactor(0, 3);
+    splitter->setStretchFactor(0, 5);
     splitter->setStretchFactor(1, 1);
     setCentralWidget(splitter);
 
@@ -55,9 +59,6 @@ MainWindow::MainWindow(QWidget* parent)
 
     connect(m_captureControls, &CaptureControls::startScanRequested, this, &MainWindow::onStartScan);
     connect(m_captureControls, &CaptureControls::stopScanRequested, this, &MainWindow::onStopScan);
-    connect(m_captureControls, &CaptureControls::showLiveChanged, m_spectrumWidget, &SpectrumWidget::setShowLive);
-    connect(m_captureControls, &CaptureControls::showMaxHoldChanged, m_spectrumWidget, &SpectrumWidget::setShowMaxHold);
-    connect(m_captureControls, &CaptureControls::showAverageChanged, m_spectrumWidget, &SpectrumWidget::setShowAverage);
 
     connect(m_markerPanel, &MarkerPanel::markersChanged, m_spectrumWidget, &SpectrumWidget::setMarkers);
     connect(m_spectrumWidget, &SpectrumWidget::frequencyClicked, m_markerPanel, &MarkerPanel::addMarkerAtFrequency);
@@ -103,7 +104,7 @@ void MainWindow::createMenus()
                 m_captureControls->startFreqMHz(),
                 m_captureControls->stopFreqMHz());
         }
-        m_spectrumWidget->setAmplitudeRange(-120, 0);
+        m_spectrumWidget->setAmplitudeRange(-120, 5);
     }, QKeySequence("Ctrl+0"));
 
     viewMenu->addAction(tr("&Clear Traces"), this, [this]() {
@@ -111,6 +112,34 @@ void MainWindow::createMenus()
         m_waterfallWidget->clear();
         m_session->clear();
     }, QKeySequence("Ctrl+L"));
+
+    viewMenu->addSeparator();
+    viewMenu->addAction(m_markerDock->toggleViewAction());
+
+    viewMenu->addSeparator();
+    auto* showLiveAction = viewMenu->addAction(tr("Show &Live Trace"));
+    showLiveAction->setCheckable(true);
+    showLiveAction->setChecked(true);
+    connect(showLiveAction, &QAction::toggled, this, [this](bool checked) {
+        m_captureControls->setShowLive(checked);
+        m_spectrumWidget->setShowLive(checked);
+    });
+
+    auto* showMaxHoldAction = viewMenu->addAction(tr("Show &Max Hold"));
+    showMaxHoldAction->setCheckable(true);
+    showMaxHoldAction->setChecked(true);
+    connect(showMaxHoldAction, &QAction::toggled, this, [this](bool checked) {
+        m_captureControls->setShowMaxHold(checked);
+        m_spectrumWidget->setShowMaxHold(checked);
+    });
+
+    auto* showAverageAction = viewMenu->addAction(tr("Show &Average"));
+    showAverageAction->setCheckable(true);
+    showAverageAction->setChecked(true);
+    connect(showAverageAction, &QAction::toggled, this, [this](bool checked) {
+        m_captureControls->setShowAverage(checked);
+        m_spectrumWidget->setShowAverage(checked);
+    });
 
     // Help menu
     auto* helpMenu = menuBar()->addMenu(tr("&Help"));
@@ -157,12 +186,23 @@ void MainWindow::createDockWidgets()
     // Stack device and capture docks vertically
     splitDockWidget(deviceDock, captureDock, Qt::Vertical);
 
+    // Left dock: Export panel (below capture)
+    auto* exportDock = new QDockWidget(tr("Export Scan"), this);
+    m_exportPanel = new ExportPanel;
+    exportDock->setWidget(m_exportPanel);
+    exportDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+    addDockWidget(Qt::LeftDockWidgetArea, exportDock);
+    splitDockWidget(captureDock, exportDock, Qt::Vertical);
+
+    connect(m_exportPanel, &ExportPanel::exportRequested,
+            this, &MainWindow::onExportFromPanel);
+
     // Right dock: Markers
-    auto* markerDock = new QDockWidget(tr("Markers"), this);
+    m_markerDock = new QDockWidget(tr("Markers"), this);
     m_markerPanel = new MarkerPanel;
-    markerDock->setWidget(m_markerPanel);
-    markerDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
-    addDockWidget(Qt::RightDockWidgetArea, markerDock);
+    m_markerDock->setWidget(m_markerPanel);
+    m_markerDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetClosable);
+    addDockWidget(Qt::RightDockWidgetArea, m_markerDock);
 }
 
 void MainWindow::onDisconnect()
@@ -193,8 +233,14 @@ void MainWindow::onStartScan(double startHz, double stopHz, int points)
         return;
     }
 
-    // Connect sweep signal
+    // Connect sweep signals
     connect(device, &ISpectrumDevice::sweepReady, this, &MainWindow::onSweepReady,
+            Qt::UniqueConnection);
+    connect(device, &ISpectrumDevice::partialSweepReady, this, [this](const SweepData& sweep) {
+        if (m_captureControls->showLive())
+            m_spectrumWidget->updateLive(sweep);
+    }, Qt::UniqueConnection);
+    connect(device, &ISpectrumDevice::sweepProgress, m_captureControls, &CaptureControls::onSweepProgress,
             Qt::UniqueConnection);
 
     // Start
@@ -233,6 +279,7 @@ void MainWindow::onSweepReady(const SweepData& sweep)
 
     m_waterfallWidget->addSweep(sweep);
     m_captureControls->onSweepReceived();
+    m_exportPanel->setExportEnabled(true);
 }
 
 void MainWindow::onExport()
@@ -244,6 +291,37 @@ void MainWindow::onExport()
 
     ExportDialog dlg(m_session, this);
     dlg.exec();
+}
+
+void MainWindow::onExportFromPanel(const QString& format, const QString& dataSource, const QString& filePath)
+{
+    if (m_session->isEmpty()) {
+        QMessageBox::information(this, tr("Export"), tr("No scan data to export. Run a scan first."));
+        return;
+    }
+
+    if (filePath.isEmpty()) {
+        return;
+    }
+
+    SweepData data;
+    if (dataSource == "maxhold")
+        data = m_session->maxHold();
+    else if (dataSource == "average")
+        data = m_session->average();
+    else
+        data = m_session->latestSweep();
+
+    bool success = false;
+    if (format == "wwb")
+        success = WwbExporter::exportToFile(filePath, data);
+    else
+        success = GenericCsvExporter::exportToFile(filePath, data, m_session->deviceName());
+
+    if (success)
+        QMessageBox::information(this, tr("Export"), tr("Scan data exported successfully."));
+    else
+        QMessageBox::critical(this, tr("Export"), tr("Failed to write file."));
 }
 
 void MainWindow::onAbout()
@@ -288,14 +366,24 @@ void MainWindow::onCheckForUpdates()
 void MainWindow::updateDeviceLimits(ISpectrumDevice* device)
 {
     connect(device, &ISpectrumDevice::deviceInfoUpdated, this, [this, device]() {
+        // Update frequency limits only when the device has reported its range
         double minMHz = device->minFreqHz() / 1e6;
         double maxMHz = device->maxFreqHz() / 1e6;
-
-        if (minMHz > 0 && maxMHz > 0) {
+        if (minMHz > 0 && maxMHz > 0)
             m_captureControls->setFrequencyLimits(minMHz, maxMHz);
-            m_captureControls->setSweepPointRange(device->minSweepPoints(), device->maxSweepPoints());
-        }
-    }, Qt::UniqueConnection);
+
+        // Always recalculate sweep points — minSweepPoints/maxSweepPoints are
+        // valid as soon as the device model is known (defaults to conservative
+        // basic-model limits until PLUS capability is confirmed).
+        m_captureControls->setSweepPointRange(device->minSweepPoints(), device->maxSweepPoints());
+
+        double startHz = m_captureControls->startFreqMHz() * 1e6;
+        double stopHz = m_captureControls->stopFreqMHz() * 1e6;
+        int recommended = static_cast<int>(std::ceil((stopHz - startHz) / 10000.0)) + 1;
+        recommended = std::max(recommended, device->minSweepPoints());
+        recommended = std::min(recommended, device->maxSweepPoints());
+        m_captureControls->setSweepPoints(recommended);
+    });
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)
@@ -305,6 +393,13 @@ void MainWindow::closeEvent(QCloseEvent* event)
         onStopScan();
 
     saveSettings();
+
+    // Shut down device manager while all widgets are still alive.
+    // During destruction, ~QWidget() destroys child widgets before
+    // ~QObject() destroys DeviceManager — any signal delivery between
+    // those phases would hit destroyed widgets.
+    m_deviceManager->shutdown();
+
     event->accept();
 }
 
@@ -313,7 +408,7 @@ void MainWindow::saveSettings()
     SettingsManager::saveWindowGeometry(this);
     SettingsManager::setValue("capture/startFreqMHz", m_captureControls->startFreqMHz());
     SettingsManager::setValue("capture/stopFreqMHz", m_captureControls->stopFreqMHz());
-    SettingsManager::setValue("capture/sweepPoints", m_captureControls->sweepPoints());
+    SettingsManager::setValue("view/markersVisible", m_markerDock->isVisible());
 }
 
 void MainWindow::loadSettings()
@@ -322,8 +417,10 @@ void MainWindow::loadSettings()
 
     double startMHz = SettingsManager::value("capture/startFreqMHz", 470.0).toDouble();
     double stopMHz = SettingsManager::value("capture/stopFreqMHz", 700.0).toDouble();
-    int points = SettingsManager::value("capture/sweepPoints", 112).toInt();
 
     m_captureControls->setFrequencyRange(startMHz, stopMHz);
     m_spectrumWidget->setFrequencyRange(startMHz, stopMHz);
+
+    bool markersVisible = SettingsManager::value("view/markersVisible", true).toBool();
+    m_markerDock->setVisible(markersVisible);
 }

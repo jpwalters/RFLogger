@@ -2,6 +2,8 @@
 
 Cross-platform (Mac, Windows & Linux) RF spectrum analyzer for the pro audio industry. Capture, visualize, and export RF spectrum data for use with **Shure Wireless Workbench** frequency coordination.
 
+![RF Logger UI](resources/screenshot/ui.png)
+
 ## Features
 
 ### Spectrum Analysis
@@ -39,8 +41,8 @@ Cross-platform (Mac, Windows & Linux) RF spectrum analyzer for the pro audio ind
 
 | Device | Connection | Frequency Range | Sweep Points | Status |
 |--------|-----------|----------------|-------------|--------|
-| RF Explorer (Basic) | USB Serial (500 000 baud) | Model-dependent (433 MHz–6 GHz) | 112–4 096 | ✅ Supported |
-| RF Explorer (PLUS) | USB Serial (500 000 baud) | Model-dependent (433 MHz–6 GHz) | 112–65 535 | ✅ Supported |
+| RF Explorer (Basic) | USB Serial (500 000 baud) | Model-dependent (433 MHz–6 GHz) | 112–4096 | ✅ Supported |
+| RF Explorer (PLUS) | USB Serial (500 000 baud) | Model-dependent (433 MHz–6 GHz) | 112–4096 | ✅ Supported |
 | TinySA Basic | USB Serial (115 200 baud) | 100 kHz–960 MHz | 450 default | ✅ Supported |
 | TinySA Ultra | USB Serial (115 200 baud) | 100 kHz–6 GHz | 450 default | ✅ Supported |
 | RTL-SDR | USB (librtlsdr) | Device-dependent | Device-dependent | 🔧 Optional |

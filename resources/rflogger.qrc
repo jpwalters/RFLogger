@@ -1,5 +1,7 @@
 <RCC>
     <qresource prefix="/">
         <file alias="icons/rflogger.png">icons/rflogger.png</file>
+        <file alias="icons/arrow-up.svg">icons/arrow-up.svg</file>
+        <file alias="icons/arrow-down.svg">icons/arrow-down.svg</file>
     </qresource>
 </RCC>

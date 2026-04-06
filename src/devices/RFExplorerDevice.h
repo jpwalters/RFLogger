@@ -46,7 +46,7 @@ private:
     static constexpr int MIN_SWEEP_POINTS_BASIC = 112;
     static constexpr int MAX_SWEEP_POINTS_BASIC = 4096;
     static constexpr int MIN_SWEEP_POINTS_PLUS = 112;
-    static constexpr int MAX_SWEEP_POINTS_PLUS = 65535;
+    static constexpr int MAX_SWEEP_POINTS_PLUS = 4096;
 
     void sendCommand(const QByteArray& cmd);
     void processBuffer();
@@ -76,6 +76,13 @@ private:
     double m_desiredStartHz = 0.0;
     double m_desiredStopHz = 0.0;
     int m_desiredSweepPoints = 112;
+
+    // Sub-sweep accumulation for high-resolution scans
+    QVector<double> m_accumBuffer;
+    double m_accumStartHz = 0.0;
+    double m_accumStepHz = 0.0;
+    int m_accumTarget = 0;
+    int m_discardCount = 0;
 
     int m_mainModelCode = -1;
     int m_expansionModelCode = -1;

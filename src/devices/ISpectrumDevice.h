@@ -36,6 +36,8 @@ public:
 
 signals:
     void sweepReady(const SweepData& sweep);
+    void partialSweepReady(const SweepData& sweep);
+    void sweepProgress(int percent);
     void connectionChanged(bool connected);
     void errorOccurred(const QString& message);
     void deviceInfoUpdated();

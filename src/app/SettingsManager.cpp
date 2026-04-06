@@ -19,6 +19,11 @@ QVariant SettingsManager::value(const QString& key, const QVariant& defaultValue
     return settings().value(key, defaultValue);
 }
 
+bool SettingsManager::contains(const QString& key)
+{
+    return settings().contains(key);
+}
+
 void SettingsManager::saveWindowGeometry(QWidget* window)
 {
     settings().setValue("window/geometry", window->saveGeometry());

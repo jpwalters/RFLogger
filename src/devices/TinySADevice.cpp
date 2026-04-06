@@ -3,6 +3,7 @@
 #include <QDebug>
 #include <QThread>
 #include <QTimer>
+#include <algorithm>
 #include <cmath>
 
 // TinySA API: https://tinysa.org/wiki/pmwiki.php?n=Main.USBInterface
@@ -198,6 +199,8 @@ bool TinySADevice::startScanning()
 void TinySADevice::stopScanning()
 {
     m_scanning = false;
+    m_scanDataStarted = false;
+    m_parsedScanPoints = 0;
 }
 
 bool TinySADevice::isScanning() const
@@ -230,6 +233,11 @@ void TinySADevice::startScanRaw()
     if (!isConnected() || !m_scanning)
         return;
 
+    // Reset incremental scan state
+    m_scanDataStarted = false;
+    m_scanDataOffset = 0;
+    m_parsedScanPoints = 0;
+
     sendTextCommand(QString("scanraw %1 %2 %3")
                         .arg(static_cast<qint64>(m_startFreqHz))
                         .arg(static_cast<qint64>(m_stopFreqHz))
@@ -242,6 +250,13 @@ void TinySADevice::onDataReady()
         return;
 
     m_buffer.append(m_serial->readAll());
+
+    // Route scan data to incremental parser for real-time graphing
+    if (m_lastCommand.startsWith("scanraw")) {
+        processIncrementalScan();
+        return;
+    }
+
     processResponse();
 }
 
@@ -315,6 +330,92 @@ void TinySADevice::processSweepConfigResponse(const QStringList& lines)
     }
 }
 
+QVector<double> TinySADevice::parseScanAmplitudes(const char* data, int count) const
+{
+    QVector<double> amplitudes(count);
+    double offsetVal = (m_model == Model::Basic) ? 128.0 : 174.0;
+
+    for (int i = 0; i < count; ++i) {
+        int offset = i * 3 + 1; // Skip first padding byte per triplet
+        unsigned char lo = static_cast<unsigned char>(data[offset]);
+        unsigned char hi = static_cast<unsigned char>(data[offset + 1]);
+        int rawVal = lo + (hi * 256);
+        amplitudes[i] = -((static_cast<double>(rawVal) / 32.0) - offsetVal);
+    }
+
+    return amplitudes;
+}
+
+void TinySADevice::processIncrementalScan()
+{
+    // Step 1: Find the opening '{' that marks the start of binary scan data
+    if (!m_scanDataStarted) {
+        int braceIdx = m_buffer.indexOf('{');
+        if (braceIdx < 0)
+            return; // Haven't received '{' yet
+        m_scanDataOffset = braceIdx + 1;
+        m_scanDataStarted = true;
+        m_parsedScanPoints = 0;
+    }
+
+    // Step 2: How many complete 3-byte points are available?
+    int availableBytes = m_buffer.size() - m_scanDataOffset;
+    int availablePoints = std::min(availableBytes / 3, m_sweepPoints);
+    int newPoints = availablePoints - m_parsedScanPoints;
+
+    // Step 3: Emit partial update if enough new data arrived (but scan isn't complete)
+    if (newPoints >= PARTIAL_SCAN_THRESHOLD && availablePoints < m_sweepPoints) {
+        double freqStep = (m_sweepPoints > 1)
+            ? (m_stopFreqHz - m_startFreqHz) / (m_sweepPoints - 1) : 0.0;
+
+        QVector<double> amplitudes = parseScanAmplitudes(
+            m_buffer.constData() + m_scanDataOffset, availablePoints);
+
+        int pct = static_cast<int>(availablePoints * 100 / m_sweepPoints);
+        emit sweepProgress(std::min(pct, 99));
+
+        SweepData partial(m_startFreqHz, freqStep, amplitudes);
+        emit partialSweepReady(partial);
+
+        m_parsedScanPoints = availablePoints;
+    }
+
+    // Step 4: Check if the full scan has arrived
+    int expectedDataBytes = m_sweepPoints * 3;
+    if (availableBytes < expectedDataBytes)
+        return; // Still waiting for more data
+
+    // Wait for the 'ch> ' prompt so we can clean the buffer properly
+    static const QByteArray delimiter("ch> ");
+    int searchFrom = m_scanDataOffset + expectedDataBytes;
+    int promptIdx = m_buffer.indexOf(delimiter, searchFrom);
+    if (promptIdx < 0)
+        return; // Data complete but prompt hasn't arrived yet
+
+    // Parse the complete sweep
+    double freqStep = (m_sweepPoints > 1)
+        ? (m_stopFreqHz - m_startFreqHz) / (m_sweepPoints - 1) : 0.0;
+
+    QVector<double> amplitudes = parseScanAmplitudes(
+        m_buffer.constData() + m_scanDataOffset, m_sweepPoints);
+
+    // Consume processed data from buffer
+    m_buffer.remove(0, promptIdx + delimiter.size());
+
+    // Reset incremental state
+    m_scanDataStarted = false;
+    m_parsedScanPoints = 0;
+
+    // Emit completed sweep
+    SweepData sweep(m_startFreqHz, freqStep, amplitudes);
+    emit sweepProgress(100);
+    emit sweepReady(sweep);
+
+    // Request next scan if still scanning
+    if (m_scanning)
+        startScanRaw();
+}
+
 void TinySADevice::processScanData(const QByteArray& rawData)
 {
     // Find the scan data block between { and }
@@ -338,24 +439,11 @@ void TinySADevice::processScanData(const QByteArray& rawData)
         return;
     }
 
-    QVector<double> amplitudes(m_sweepPoints);
     double freqStep = (m_sweepPoints > 1) ? (m_stopFreqHz - m_startFreqHz) / (m_sweepPoints - 1) : 0.0;
-
-    for (int i = 0; i < m_sweepPoints; ++i) {
-        int offset = i * 3 + 1; // Skip first padding byte per triplet
-        if (offset + 1 >= scanBytes.size())
-            break;
-
-        unsigned char lo = static_cast<unsigned char>(scanBytes[offset]);
-        unsigned char hi = static_cast<unsigned char>(scanBytes[offset + 1]);
-        int rawVal = lo + (hi * 256);
-
-        // Convert to dBm
-        double offsetVal = (m_model == Model::Basic) ? 128.0 : 174.0;
-        amplitudes[i] = -((static_cast<double>(rawVal) / 32.0) - offsetVal);
-    }
+    QVector<double> amplitudes = parseScanAmplitudes(scanBytes.constData(), m_sweepPoints);
 
     SweepData sweep(m_startFreqHz, freqStep, amplitudes);
+    emit sweepProgress(100);
     emit sweepReady(sweep);
 
     // Request next scan if still scanning

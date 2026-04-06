@@ -102,6 +102,36 @@ void DarkTheme::apply(QApplication& app)
         QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QLineEdit:focus {
             border: 1px solid #2a82da;
         }
+        QSpinBox::up-button, QDoubleSpinBox::up-button {
+            subcontrol-origin: border;
+            subcontrol-position: top right;
+            width: 16px;
+            border-left: 1px solid #555;
+            border-bottom: 1px solid #555;
+            background-color: #3a3a3a;
+        }
+        QSpinBox::down-button, QDoubleSpinBox::down-button {
+            subcontrol-origin: border;
+            subcontrol-position: bottom right;
+            width: 16px;
+            border-left: 1px solid #555;
+            border-top: 1px solid #555;
+            background-color: #3a3a3a;
+        }
+        QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+        QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+            background-color: #505050;
+        }
+        QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+            image: url(:/icons/arrow-up.svg);
+            width: 8px;
+            height: 8px;
+        }
+        QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+            image: url(:/icons/arrow-down.svg);
+            width: 8px;
+            height: 8px;
+        }
         QSplitter::handle {
             background-color: #444;
         }

@@ -28,6 +28,7 @@ public:
 
     bool connectDevice(const QString& portOrPath, DeviceType type = DeviceType::AutoDetect);
     void disconnectDevice();
+    void shutdown();
 
     ISpectrumDevice* currentDevice() const { return m_currentDevice; }
     bool isConnected() const { return m_currentDevice && m_currentDevice->isConnected(); }

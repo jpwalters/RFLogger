@@ -35,7 +35,40 @@ void SpectrumWidget::setupPlot()
 
     // Default ranges
     xAxis->setRange(470, 700);
-    yAxis->setRange(-120, 0);
+    yAxis->setRange(-120, 5);
+
+    // Show ticks every 5 dBm for easier readability
+    QSharedPointer<QCPAxisTickerFixed> yTicker(new QCPAxisTickerFixed);
+    yTicker->setTickStep(5.0);
+    yAxis->setTicker(yTicker);
+
+    // Show ticks every 10 MHz on the X axis
+    QSharedPointer<QCPAxisTickerFixed> xTicker(new QCPAxisTickerFixed);
+    xTicker->setTickStep(10.0);
+    xAxis->setTicker(xTicker);
+
+    // Coordinate readout label (follows mouse)
+    m_coordLabel = new QCPItemText(this);
+    m_coordLabel->setPositionAlignment(Qt::AlignLeft | Qt::AlignTop);
+    m_coordLabel->position->setType(QCPItemPosition::ptAbsolute);
+    m_coordLabel->setFont(QFont(font().family(), 9));
+    m_coordLabel->setColor(QColor(220, 220, 220));
+    m_coordLabel->setPadding(QMargins(4, 2, 4, 2));
+    m_coordLabel->setBrush(QBrush(QColor(30, 30, 30, 180)));
+    m_coordLabel->setVisible(false);
+
+    // Crosshair lines (follow mouse across full plot area)
+    QPen crosshairPen(QColor(255, 255, 255, 120), 1, Qt::DashLine);
+
+    m_vCrosshair = new QCPItemLine(this);
+    m_vCrosshair->setPen(crosshairPen);
+    m_vCrosshair->setVisible(false);
+
+    m_hCrosshair = new QCPItemLine(this);
+    m_hCrosshair->setPen(crosshairPen);
+    m_hCrosshair->setVisible(false);
+
+    setMouseTracking(true);
 
     // Enable zoom and pan
     setInteractions(QCP::iRangeDrag | QCP::iRangeZoom);
@@ -189,6 +222,66 @@ void SpectrumWidget::updateMarkerLines()
     }
 
     replot();
+}
+
+void SpectrumWidget::mouseMoveEvent(QMouseEvent* event)
+{
+    double freqMHz = xAxis->pixelToCoord(event->pos().x());
+    double ampDbm = yAxis->pixelToCoord(event->pos().y());
+
+    if (axisRect()->rect().contains(event->pos())) {
+        QString text = QString("%1 MHz, %2 dBm")
+                           .arg(freqMHz, 0, 'f', 3)
+                           .arg(ampDbm, 0, 'f', 1);
+        m_coordLabel->setText(text);
+
+        // Estimate label size and keep it inside the plot area
+        QFontMetrics fm(m_coordLabel->font());
+        int labelW = fm.horizontalAdvance(text) + 12; // padding
+        int labelH = fm.height() + 8;
+        QRect plotRect = axisRect()->rect();
+
+        double lx = event->pos().x() + 12;
+        double ly = event->pos().y() - 12;
+
+        // Flip to left of cursor if it would overflow the right edge
+        if (lx + labelW > plotRect.right())
+            lx = event->pos().x() - 12 - labelW;
+
+        // Flip below cursor if it would overflow the top edge
+        if (ly - labelH < plotRect.top())
+            ly = event->pos().y() + 12 + labelH;
+
+        m_coordLabel->position->setCoords(lx, ly);
+        m_coordLabel->setPositionAlignment(Qt::AlignLeft | Qt::AlignBottom);
+        m_coordLabel->setVisible(true);
+
+        // Vertical crosshair (cursor down to bottom axis)
+        m_vCrosshair->start->setCoords(freqMHz, ampDbm);
+        m_vCrosshair->end->setCoords(freqMHz, yAxis->range().lower);
+        m_vCrosshair->setVisible(true);
+
+        // Horizontal crosshair (cursor left to Y axis)
+        m_hCrosshair->start->setCoords(freqMHz, ampDbm);
+        m_hCrosshair->end->setCoords(xAxis->range().lower, ampDbm);
+        m_hCrosshair->setVisible(true);
+    } else {
+        m_coordLabel->setVisible(false);
+        m_vCrosshair->setVisible(false);
+        m_hCrosshair->setVisible(false);
+    }
+    replot(QCustomPlot::rpQueuedReplot);
+
+    QCustomPlot::mouseMoveEvent(event);
+}
+
+void SpectrumWidget::leaveEvent(QEvent* event)
+{
+    m_coordLabel->setVisible(false);
+    m_vCrosshair->setVisible(false);
+    m_hCrosshair->setVisible(false);
+    replot(QCustomPlot::rpQueuedReplot);
+    QCustomPlot::leaveEvent(event);
 }
 
 void SpectrumWidget::mousePressEvent(QMouseEvent* event)

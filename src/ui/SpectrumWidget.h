@@ -32,11 +32,16 @@ signals:
 
 protected:
     void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void leaveEvent(QEvent* event) override;
 
 private:
     void setupPlot();
     void updateMarkerLines();
 
+    QCPItemText* m_coordLabel = nullptr;
+    QCPItemLine* m_vCrosshair = nullptr;
+    QCPItemLine* m_hCrosshair = nullptr;
     QCPGraph* m_liveGraph = nullptr;
     QCPGraph* m_maxHoldGraph = nullptr;
     QCPGraph* m_averageGraph = nullptr;

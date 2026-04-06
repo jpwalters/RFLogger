@@ -28,6 +28,13 @@ DeviceManager::DeviceManager(QObject* parent)
 
 DeviceManager::~DeviceManager()
 {
+    shutdown();
+}
+
+void DeviceManager::shutdown()
+{
+    m_pollTimer->stop();
+    m_autoConnectTimer->stop();
     disconnectDevice();
 }
 
@@ -180,6 +187,9 @@ bool DeviceManager::connectDevice(const QString& portOrPath, DeviceType type)
 void DeviceManager::disconnectDevice()
 {
     if (m_currentDevice) {
+        // Disconnect signals first so the connectionChanged(false) lambda
+        // cannot null m_currentDevice while we're still using it.
+        m_currentDevice->disconnect(this);
         m_currentDevice->disconnectDevice();
         m_currentDevice->deleteLater();
         m_currentDevice = nullptr;

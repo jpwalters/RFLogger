@@ -127,6 +127,8 @@ set(RFLOGGER_SOURCES
     src/ui/MarkerPanel.cpp
     src/ui/ExportDialog.h
     src/ui/ExportDialog.cpp
+    src/ui/ExportPanel.h
+    src/ui/ExportPanel.cpp
     src/app/MainWindow.h
     src/app/MainWindow.cpp
     src/app/SettingsManager.h

@@ -32,7 +32,7 @@ CaptureControls::CaptureControls(QWidget* parent)
 
     m_pointsSpin = new QSpinBox;
     m_pointsSpin->setRange(112, 65535);
-    m_pointsSpin->setValue(112);
+    m_pointsSpin->setValue(23001);
     freqLayout->addRow(tr("Points:"), m_pointsSpin);
 
     layout->addWidget(freqGroup);
@@ -60,25 +60,20 @@ CaptureControls::CaptureControls(QWidget* parent)
     statsLayout->addRow(tr("Elapsed:"), m_elapsedLabel);
 
     scanLayout->addLayout(statsLayout);
+
+    m_sweepProgress = new QProgressBar;
+    m_sweepProgress->setRange(0, 100);
+    m_sweepProgress->setValue(0);
+    m_sweepProgress->setTextVisible(false);
+    m_sweepProgress->setFixedHeight(8);
+    m_sweepProgress->setVisible(false);
+    m_sweepProgress->setStyleSheet(
+        "QProgressBar { background-color: #2a2a2a; border: 1px solid #444; border-radius: 3px; }"
+        "QProgressBar::chunk { background-color: #22cc55; border-radius: 2px; }");
+    scanLayout->addWidget(m_sweepProgress);
+
     layout->addWidget(scanGroup);
 
-    // Display options
-    auto* displayGroup = new QGroupBox(tr("Display"));
-    auto* displayLayout = new QVBoxLayout(displayGroup);
-
-    m_showLiveCheck = new QCheckBox(tr("Live Trace"));
-    m_showLiveCheck->setChecked(true);
-    displayLayout->addWidget(m_showLiveCheck);
-
-    m_showMaxHoldCheck = new QCheckBox(tr("Max Hold"));
-    m_showMaxHoldCheck->setChecked(true);
-    displayLayout->addWidget(m_showMaxHoldCheck);
-
-    m_showAverageCheck = new QCheckBox(tr("Average"));
-    m_showAverageCheck->setChecked(true);
-    displayLayout->addWidget(m_showAverageCheck);
-
-    layout->addWidget(displayGroup);
     layout->addStretch();
 
     // Connections
@@ -92,10 +87,6 @@ CaptureControls::CaptureControls(QWidget* parent)
                 m_pointsSpin->value());
         }
     });
-
-    connect(m_showLiveCheck, &QCheckBox::toggled, this, &CaptureControls::showLiveChanged);
-    connect(m_showMaxHoldCheck, &QCheckBox::toggled, this, &CaptureControls::showMaxHoldChanged);
-    connect(m_showAverageCheck, &QCheckBox::toggled, this, &CaptureControls::showAverageChanged);
 
     // UI update timer
     m_uiTimer = new QTimer(this);
@@ -112,6 +103,15 @@ CaptureControls::CaptureControls(QWidget* parent)
             double rate = m_sweepCount * 1000.0 / ms;
             m_sweepRateLabel->setText(QString("%1 /s").arg(rate, 0, 'f', 1));
         }
+
+        // Time-based progress estimation when device sends no sub-sweep progress
+        if (!m_gotDeviceProgress && m_lastSweepMs > 0) {
+            qint64 sweepElapsed = m_sweepTimer.elapsed();
+            int pct = static_cast<int>(sweepElapsed * 100 / m_lastSweepMs);
+            pct = std::min(pct, 99);
+            m_sweepProgress->setRange(0, 100);
+            m_sweepProgress->setValue(pct);
+        }
     });
 }
 
@@ -119,9 +119,13 @@ double CaptureControls::startFreqMHz() const { return m_startFreqSpin->value(); 
 double CaptureControls::stopFreqMHz() const { return m_stopFreqSpin->value(); }
 int CaptureControls::sweepPoints() const { return m_pointsSpin->value(); }
 
-bool CaptureControls::showLive() const { return m_showLiveCheck->isChecked(); }
-bool CaptureControls::showMaxHold() const { return m_showMaxHoldCheck->isChecked(); }
-bool CaptureControls::showAverage() const { return m_showAverageCheck->isChecked(); }
+bool CaptureControls::showLive() const { return m_showLive; }
+bool CaptureControls::showMaxHold() const { return m_showMaxHold; }
+bool CaptureControls::showAverage() const { return m_showAverage; }
+
+void CaptureControls::setShowLive(bool show) { m_showLive = show; }
+void CaptureControls::setShowMaxHold(bool show) { m_showMaxHold = show; }
+void CaptureControls::setShowAverage(bool show) { m_showAverage = show; }
 
 void CaptureControls::setFrequencyRange(double startMHz, double stopMHz)
 {
@@ -140,12 +144,28 @@ void CaptureControls::setSweepPointRange(int minPts, int maxPts)
     m_pointsSpin->setRange(minPts, maxPts);
 }
 
+void CaptureControls::setSweepPoints(int points)
+{
+    m_pointsSpin->setValue(points);
+}
+
 void CaptureControls::onScanStarted()
 {
     m_scanning = true;
     m_sweepCount = 0;
+    m_gotDeviceProgress = false;
     m_elapsed.start();
-    m_uiTimer->start(500);
+    m_sweepTimer.start();
+    m_uiTimer->start(200);
+
+    // Indeterminate (pulsing) until we have a timing reference or device progress
+    if (m_lastSweepMs > 0) {
+        m_sweepProgress->setRange(0, 100);
+        m_sweepProgress->setValue(0);
+    } else {
+        m_sweepProgress->setRange(0, 0);  // Indeterminate mode
+    }
+    m_sweepProgress->setVisible(true);
 
     m_scanBtn->setText(tr("⏹  Stop Scan"));
     m_scanBtn->setStyleSheet(
@@ -163,6 +183,9 @@ void CaptureControls::onScanStopped()
     m_scanning = false;
     m_uiTimer->stop();
 
+    m_sweepProgress->setValue(0);
+    m_sweepProgress->setVisible(false);
+
     m_scanBtn->setText(tr("▶  Start Scan"));
     m_scanBtn->setStyleSheet(
         "QPushButton { background-color: #1a6b1a; border: 1px solid #2a8b2a; font-size: 13px; font-weight: bold; }"
@@ -176,6 +199,20 @@ void CaptureControls::onScanStopped()
 
 void CaptureControls::onSweepReceived()
 {
+    m_lastSweepMs = m_sweepTimer.elapsed();
+    m_sweepTimer.start();
+    m_gotDeviceProgress = false;
+
+    m_sweepProgress->setRange(0, 100);
+    m_sweepProgress->setValue(0);
+
     m_sweepCount++;
     m_sweepCountLabel->setText(QString::number(m_sweepCount));
+}
+
+void CaptureControls::onSweepProgress(int percent)
+{
+    m_gotDeviceProgress = true;
+    m_sweepProgress->setRange(0, 100);
+    m_sweepProgress->setValue(percent);
 }

@@ -182,15 +182,19 @@ bool RFExplorerDevice::configure(double startFreqHz, double stopFreqHz, int swee
     m_desiredStopHz = stopFreqHz;
     m_desiredSweepPoints = sweepPoints;
 
-    // Send HOLD to stop the device data dump, then clear any buffered
-    // data so the parser starts cleanly with the new configuration.
+    // Send HOLD to stop the device data dump, then clear our
+    // application-level buffer and accumulator so the parser
+    // starts cleanly with the new configuration.
     QByteArray holdCmd(4, '\0');
     holdCmd[0] = '#';
     holdCmd[1] = 0x04;
     holdCmd[2] = 'C';
     holdCmd[3] = 'H';
     sendCommand(holdCmd);
+
     m_buffer.clear();
+    m_accumBuffer.clear();
+    m_discardCount = 1;  // Skip first stale scan message from old config
 
     // Set sweep points BEFORE frequency config so the device applies both
     // before it starts the new sweep stream.
@@ -250,7 +254,13 @@ bool RFExplorerDevice::startScanning()
         return false;
 
     m_scanning = true;
-    // The device starts sending scan data automatically after GET_CONFIG or SET_CONFIG
+
+    // Reset sub-sweep accumulator
+    m_accumBuffer.clear();
+    m_accumStartHz = 0.0;
+    m_accumStepHz = 0.0;
+    m_accumTarget = m_desiredSweepPoints;
+
     if (!m_configReceived)
         requestConfig();
     return true;
@@ -464,6 +474,12 @@ void RFExplorerDevice::processConfigData(const QByteArray& data)
 
 void RFExplorerDevice::processScanData(const QByteArray& data, int sweepPoints)
 {
+    // Discard stale scan messages that were in-flight during reconfiguration
+    if (m_discardCount > 0) {
+        --m_discardCount;
+        return;
+    }
+
     QVector<double> amplitudes(sweepPoints);
 
     for (int i = 0; i < sweepPoints && i < data.size(); ++i) {
@@ -473,8 +489,48 @@ void RFExplorerDevice::processScanData(const QByteArray& data, int sweepPoints)
         amplitudes[i] = static_cast<double>(raw) / -2.0;
     }
 
-    SweepData sweep(m_startFreqHz, m_freqStepHz, amplitudes);
-    emit sweepReady(sweep);
+    // If the device delivers exactly the requested point count in one message,
+    // emit directly without accumulation overhead.
+    if (sweepPoints >= m_accumTarget) {
+        emit sweepProgress(100);
+        SweepData sweep(m_startFreqHz, m_freqStepHz, amplitudes);
+        emit sweepReady(sweep);
+        return;
+    }
+
+    // Sub-sweep accumulation: the device sends the full range in multiple
+    // smaller sweeps.  Append each chunk and emit once the target is reached.
+    if (m_accumBuffer.isEmpty()) {
+        m_accumStartHz = m_startFreqHz;
+        m_accumStepHz = m_freqStepHz;
+    }
+
+    m_accumBuffer.append(amplitudes);
+
+    int pct = static_cast<int>(m_accumBuffer.size() * 100 / m_accumTarget);
+    emit sweepProgress(std::min(pct, 99));
+
+    // Emit partial sweep so the UI can graph data as it arrives
+    double partialStepHz = (m_accumBuffer.size() > 1)
+        ? (m_desiredStopHz - m_desiredStartHz) / (m_accumTarget - 1)
+        : m_accumStepHz;
+    SweepData partial(m_desiredStartHz, partialStepHz, m_accumBuffer);
+    emit partialSweepReady(partial);
+
+    if (m_accumBuffer.size() >= m_accumTarget) {
+        // Trim to exact target in case the device overshot slightly
+        m_accumBuffer.resize(m_accumTarget);
+
+        // Recalculate step size for the full accumulated range
+        double fullStepHz = (m_accumTarget > 1)
+            ? (m_desiredStopHz - m_desiredStartHz) / (m_accumTarget - 1)
+            : 0.0;
+
+        emit sweepProgress(100);
+        SweepData sweep(m_desiredStartHz, fullStepHz, m_accumBuffer);
+        emit sweepReady(sweep);
+        m_accumBuffer.clear();
+    }
 }
 
 void RFExplorerDevice::processModelData(const QByteArray& data)

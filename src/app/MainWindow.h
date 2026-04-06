@@ -11,6 +11,7 @@ class WaterfallWidget;
 class DevicePanel;
 class CaptureControls;
 class MarkerPanel;
+class ExportPanel;
 class ISpectrumDevice;
 class UpdateChecker;
 
@@ -31,6 +32,7 @@ private slots:
     void onStopScan();
     void onSweepReady(const SweepData& sweep);
     void onExport();
+    void onExportFromPanel(const QString& format, const QString& dataSource, const QString& filePath);
     void onAbout();
     void onCheckForUpdates();
 
@@ -49,5 +51,7 @@ private:
     DevicePanel* m_devicePanel;
     CaptureControls* m_captureControls;
     MarkerPanel* m_markerPanel;
+    ExportPanel* m_exportPanel;
+    QDockWidget* m_markerDock = nullptr;
     UpdateChecker* m_updateChecker = nullptr;
 };

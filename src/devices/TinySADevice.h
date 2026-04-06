@@ -54,9 +54,11 @@ private:
 
     void sendTextCommand(const QString& cmd);
     void processResponse();
+    void processIncrementalScan();
     void processVersionResponse(const QStringList& lines);
     void processSweepConfigResponse(const QStringList& lines);
     void processScanData(const QByteArray& rawData);
+    QVector<double> parseScanAmplitudes(const char* data, int count) const;
     void requestVersion();
     void requestSweepConfig();
     void startScanRaw();
@@ -77,4 +79,10 @@ private:
     double m_startFreqHz = 0.0;
     double m_stopFreqHz = 0.0;
     int m_sweepPoints = 450;
+
+    // Incremental scan parsing
+    bool m_scanDataStarted = false;
+    int m_scanDataOffset = 0;
+    int m_parsedScanPoints = 0;
+    static constexpr int PARTIAL_SCAN_THRESHOLD = 50;
 };

@@ -5,7 +5,7 @@
 #include <QSpinBox>
 #include <QPushButton>
 #include <QLabel>
-#include <QCheckBox>
+#include <QProgressBar>
 #include <QElapsedTimer>
 #include <QTimer>
 
@@ -23,22 +23,25 @@ public:
     void setFrequencyRange(double startMHz, double stopMHz);
     void setFrequencyLimits(double minMHz, double maxMHz);
     void setSweepPointRange(int minPts, int maxPts);
+    void setSweepPoints(int points);
 
     bool showLive() const;
     bool showMaxHold() const;
     bool showAverage() const;
 
+    void setShowLive(bool show);
+    void setShowMaxHold(bool show);
+    void setShowAverage(bool show);
+
 public slots:
     void onScanStarted();
     void onScanStopped();
     void onSweepReceived();
+    void onSweepProgress(int percent);
 
 signals:
     void startScanRequested(double startHz, double stopHz, int points);
     void stopScanRequested();
-    void showLiveChanged(bool show);
-    void showMaxHoldChanged(bool show);
-    void showAverageChanged(bool show);
 
 private:
     QDoubleSpinBox* m_startFreqSpin;
@@ -48,12 +51,16 @@ private:
     QLabel* m_sweepCountLabel;
     QLabel* m_sweepRateLabel;
     QLabel* m_elapsedLabel;
-    QCheckBox* m_showLiveCheck;
-    QCheckBox* m_showMaxHoldCheck;
-    QCheckBox* m_showAverageCheck;
 
+    QProgressBar* m_sweepProgress;
     QElapsedTimer m_elapsed;
+    QElapsedTimer m_sweepTimer;
     QTimer* m_uiTimer;
     int m_sweepCount = 0;
+    qint64 m_lastSweepMs = 0;
     bool m_scanning = false;
+    bool m_gotDeviceProgress = false;
+    bool m_showLive = true;
+    bool m_showMaxHold = true;
+    bool m_showAverage = true;
 };
