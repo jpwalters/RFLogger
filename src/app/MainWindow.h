@@ -25,7 +25,6 @@ protected:
     void closeEvent(QCloseEvent* event) override;
 
 private slots:
-    void onConnect(const QString& port, int deviceType);
     void onDisconnect();
     void onStartScan(double startHz, double stopHz, int points);
     void onStopScan();

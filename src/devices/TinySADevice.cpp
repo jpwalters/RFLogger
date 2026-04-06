@@ -2,6 +2,7 @@
 
 #include <QDebug>
 #include <QThread>
+#include <QTimer>
 #include <cmath>
 
 // TinySA API: https://tinysa.org/wiki/pmwiki.php?n=Main.USBInterface
@@ -86,6 +87,20 @@ bool TinySADevice::connectDevice(const QString& portName)
     }
 
     connect(m_serial, &QSerialPort::readyRead, this, &TinySADevice::onDataReady);
+    connect(m_serial, &QSerialPort::errorOccurred, this, [this](QSerialPort::SerialPortError error) {
+        if (error == QSerialPort::ResourceError && !m_disconnecting) {
+            qDebug() << "TinySA: device removed (ResourceError)";
+            // Mark as disconnecting immediately to stop all I/O
+            m_disconnecting = true;
+            m_scanning = false;
+            m_connected = false;
+            // Disconnect signals to prevent further callbacks
+            if (m_serial)
+                m_serial->disconnect(this);
+            // Defer actual cleanup to next event loop iteration
+            QTimer::singleShot(0, this, &TinySADevice::disconnectDevice);
+        }
+    });
 
     m_connected = true;
     m_configReceived = false;
@@ -101,20 +116,27 @@ bool TinySADevice::connectDevice(const QString& portName)
 
 void TinySADevice::disconnectDevice()
 {
+    bool wasAlreadyDisconnecting = m_disconnecting;
+    m_disconnecting = true;
     m_scanning = false;
 
     if (m_serial) {
-        if (m_serial->isOpen())
+        m_serial->disconnect(this);
+
+        if (m_serial->isOpen() && !wasAlreadyDisconnecting) {
             m_serial->close();
+        }
         m_serial->deleteLater();
         m_serial = nullptr;
     }
 
-    if (m_connected) {
-        m_connected = false;
-        m_configReceived = false;
+    bool wasConnected = m_connected;
+    m_connected = false;
+    m_configReceived = false;
+    m_disconnecting = false;
+
+    if (wasConnected)
         emit connectionChanged(false);
-    }
 }
 
 bool TinySADevice::isConnected() const
@@ -185,7 +207,7 @@ bool TinySADevice::isScanning() const
 
 void TinySADevice::sendTextCommand(const QString& cmd)
 {
-    if (!m_serial || !m_serial->isOpen())
+    if (!m_serial || !m_serial->isOpen() || m_serial->error() != QSerialPort::NoError)
         return;
 
     m_lastCommand = cmd;
@@ -216,7 +238,7 @@ void TinySADevice::startScanRaw()
 
 void TinySADevice::onDataReady()
 {
-    if (!m_serial)
+    if (!m_serial || m_disconnecting)
         return;
 
     m_buffer.append(m_serial->readAll());

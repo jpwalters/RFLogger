@@ -1,12 +1,15 @@
 #include <QApplication>
 #include <QIcon>
 #include "app/MainWindow.h"
+#include "app/CrashHandler.h"
 #include "theme/DarkTheme.h"
 #include "Version.h"
 
 int main(int argc, char* argv[])
 {
-    QApplication app(argc, argv);
+    CrashHandler::install();
+
+    SafeApplication app(argc, argv);
 
     app.setApplicationName("RFLogger");
     app.setApplicationVersion(RFLOGGER_VERSION_STRING);

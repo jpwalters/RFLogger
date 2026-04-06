@@ -21,6 +21,7 @@
 #include <QCloseEvent>
 #include <QMessageBox>
 #include <QApplication>
+#include <stdexcept>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -46,12 +47,9 @@ MainWindow::MainWindow(QWidget* parent)
     createMenus();
 
     // Status bar
-    statusBar()->showMessage(tr("Ready — Connect a device to begin"));
+    statusBar()->showMessage(tr("Waiting for device..."));
 
     // Wire up connections
-    connect(m_devicePanel, &DevicePanel::connectRequested, this, [this](const QString& port, DeviceManager::DeviceType type) {
-        onConnect(port, static_cast<int>(type));
-    });
     connect(m_devicePanel, &DevicePanel::disconnectRequested, this, &MainWindow::onDisconnect);
 
     connect(m_captureControls, &CaptureControls::startScanRequested, this, &MainWindow::onStartScan);
@@ -68,10 +66,13 @@ MainWindow::MainWindow(QWidget* parent)
         statusBar()->showMessage(tr("Connected to %1").arg(device->deviceName()));
     });
     connect(m_deviceManager, &DeviceManager::deviceDisconnected, this, [this]() {
-        statusBar()->showMessage(tr("Disconnected"));
+        statusBar()->showMessage(tr("Device disconnected — waiting for device..."));
     });
     connect(m_deviceManager, &DeviceManager::errorOccurred, this, [this](const QString& msg) {
         statusBar()->showMessage(tr("Error: %1").arg(msg));
+    });
+    connect(m_deviceManager, &DeviceManager::statusChanged, this, [this](const QString& status) {
+        statusBar()->showMessage(status);
     });
 
     loadSettings();
@@ -114,6 +115,24 @@ void MainWindow::createMenus()
     auto* helpMenu = menuBar()->addMenu(tr("&Help"));
     helpMenu->addAction(tr("&About RF Logger"), this, &MainWindow::onAbout);
     helpMenu->addAction(tr("About &Qt"), qApp, &QApplication::aboutQt);
+
+#ifdef RFLOGGER_DEBUG_MENU
+    // Debug menu — test crash handlers
+    auto* debugMenu = menuBar()->addMenu(tr("&Debug"));
+    debugMenu->addAction(tr("Test: C++ Exception"), this, []() {
+        throw std::runtime_error("Test crash — this is a deliberate C++ exception to verify the crash handler.");
+    });
+    debugMenu->addAction(tr("Test: Access Violation"), this, []() {
+        volatile int* p = nullptr;
+        *p = 42;  // NOLINT — deliberate null dereference
+    });
+    debugMenu->addAction(tr("Test: Abort"), this, []() {
+        std::abort();
+    });
+    debugMenu->addAction(tr("Test: Qt Fatal"), this, []() {
+        qFatal("Test crash — this is a deliberate qFatal() to verify the crash handler.");
+    });
+#endif
 }
 
 void MainWindow::createDockWidgets()
@@ -141,17 +160,6 @@ void MainWindow::createDockWidgets()
     markerDock->setWidget(m_markerPanel);
     markerDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
     addDockWidget(Qt::RightDockWidgetArea, markerDock);
-}
-
-void MainWindow::onConnect(const QString& port, int deviceType)
-{
-    if (port.isEmpty()) {
-        statusBar()->showMessage(tr("No port selected"));
-        return;
-    }
-
-    statusBar()->showMessage(tr("Connecting to %1...").arg(port));
-    m_deviceManager->connectDevice(port, static_cast<DeviceManager::DeviceType>(deviceType));
 }
 
 void MainWindow::onDisconnect()
@@ -270,8 +278,6 @@ void MainWindow::saveSettings()
     SettingsManager::setValue("capture/startFreqMHz", m_captureControls->startFreqMHz());
     SettingsManager::setValue("capture/stopFreqMHz", m_captureControls->stopFreqMHz());
     SettingsManager::setValue("capture/sweepPoints", m_captureControls->sweepPoints());
-    SettingsManager::setValue("device/port", m_devicePanel->selectedPort());
-    SettingsManager::setValue("device/type", static_cast<int>(m_devicePanel->selectedDeviceType()));
 }
 
 void MainWindow::loadSettings()

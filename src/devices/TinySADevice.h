@@ -66,6 +66,7 @@ private:
 
     bool m_connected = false;
     bool m_scanning = false;
+    bool m_disconnecting = false;
     bool m_configReceived = false;
     Model m_model = Model::Unknown;
     FreqMode m_freqMode = FreqMode::High;

@@ -32,6 +32,8 @@ public:
     ISpectrumDevice* currentDevice() const { return m_currentDevice; }
     bool isConnected() const { return m_currentDevice && m_currentDevice->isConnected(); }
 
+    QString connectedPort() const { return m_connectedPort; }
+
     void refreshPorts();
 
 signals:
@@ -39,11 +41,19 @@ signals:
     void deviceConnected(ISpectrumDevice* device);
     void deviceDisconnected();
     void errorOccurred(const QString& message);
+    void autoConnectAttempting(const QString& port);
+    void statusChanged(const QString& status);
+
+private slots:
+    void tryAutoConnect();
 
 private:
     DeviceType detectDeviceType(const QString& portName) const;
 
     ISpectrumDevice* m_currentDevice = nullptr;
     QTimer* m_pollTimer = nullptr;
+    QTimer* m_autoConnectTimer = nullptr;
     QStringList m_lastPorts;
+    QStringList m_pendingPorts;
+    QString m_connectedPort;
 };

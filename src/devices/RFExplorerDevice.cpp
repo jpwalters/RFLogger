@@ -80,6 +80,21 @@ bool RFExplorerDevice::connectDevice(const QString& portName)
     }
 
     connect(m_serial, &QSerialPort::readyRead, this, &RFExplorerDevice::onDataReady);
+    connect(m_serial, &QSerialPort::errorOccurred, this, [this](QSerialPort::SerialPortError error) {
+        if (error == QSerialPort::ResourceError && !m_disconnecting) {
+            qDebug() << "RF Explorer: device removed (ResourceError)";
+            // Mark as disconnecting immediately to stop all I/O
+            m_disconnecting = true;
+            m_scanning = false;
+            m_connected = false;
+            // Disconnect signals to prevent further callbacks
+            if (m_serial)
+                m_serial->disconnect(this);
+            // Defer actual cleanup to next event loop iteration —
+            // calling close()/deleteLater() inside errorOccurred crashes
+            QTimer::singleShot(0, this, &RFExplorerDevice::disconnectDevice);
+        }
+    });
 
     m_connected = true;
     m_configReceived = false;
@@ -95,26 +110,38 @@ bool RFExplorerDevice::connectDevice(const QString& portName)
 
 void RFExplorerDevice::disconnectDevice()
 {
+    // Allow re-entry from the deferred QTimer::singleShot after ResourceError,
+    // but prevent true recursive re-entrancy within the same call.
+    bool wasAlreadyDisconnecting = m_disconnecting;
+    m_disconnecting = true;
     m_scanning = false;
 
     if (m_serial) {
+        // Disconnect all signals first to prevent re-entrancy
+        m_serial->disconnect(this);
+
         if (m_serial->isOpen()) {
-            // Send HOLD command to stop device transmission
-            QByteArray holdCmd = QByteArray("#\x04" "CH", 4);
-            m_serial->write(holdCmd);
-            m_serial->flush();
-            QThread::msleep(50);
+            // Only send HOLD command if the port is still healthy.
+            // If the device was physically unplugged, writing will crash.
+            if (m_serial->error() == QSerialPort::NoError && !wasAlreadyDisconnecting) {
+                QByteArray holdCmd = QByteArray("#\x04" "CH", 4);
+                m_serial->write(holdCmd);
+                m_serial->flush();
+                QThread::msleep(50);
+            }
             m_serial->close();
         }
         m_serial->deleteLater();
         m_serial = nullptr;
     }
 
-    if (m_connected) {
-        m_connected = false;
-        m_configReceived = false;
+    bool wasConnected = m_connected;
+    m_connected = false;
+    m_configReceived = false;
+    m_disconnecting = false;
+
+    if (wasConnected)
         emit connectionChanged(false);
-    }
 }
 
 bool RFExplorerDevice::isConnected() const
@@ -252,7 +279,7 @@ bool RFExplorerDevice::isScanning() const
 
 void RFExplorerDevice::sendCommand(const QByteArray& cmd)
 {
-    if (!m_serial || !m_serial->isOpen())
+    if (!m_serial || !m_serial->isOpen() || m_serial->error() != QSerialPort::NoError)
         return;
 
     m_serial->write(cmd);
@@ -261,7 +288,7 @@ void RFExplorerDevice::sendCommand(const QByteArray& cmd)
 
 void RFExplorerDevice::onDataReady()
 {
-    if (!m_serial)
+    if (!m_serial || m_disconnecting)
         return;
 
     m_buffer.append(m_serial->readAll());

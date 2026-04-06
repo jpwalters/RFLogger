@@ -133,6 +133,8 @@ set(RFLOGGER_SOURCES
     src/app/SettingsManager.cpp
     src/app/AboutDialog.h
     src/app/AboutDialog.cpp
+    src/app/CrashHandler.h
+    src/app/CrashHandler.cpp
     resources/rflogger.qrc
 )
 
@@ -183,6 +185,11 @@ if(RTLSDR_FOUND)
     target_compile_definitions(RFLogger PRIVATE RFLOGGER_HAS_RTLSDR)
     target_include_directories(RFLogger PRIVATE ${RTLSDR_INCLUDE_DIRS})
     target_link_libraries(RFLogger PRIVATE ${RTLSDR_LIBRARIES})
+endif()
+
+option(RFLOGGER_DEBUG_MENU "Show Debug menu with crash-test actions" OFF)
+if(RFLOGGER_DEBUG_MENU)
+    target_compile_definitions(RFLogger PRIVATE RFLOGGER_DEBUG_MENU)
 endif()
 
 # ── Dev-time Qt deployment (Windows) ─────────────────────────────────────────

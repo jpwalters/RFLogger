@@ -12,10 +12,17 @@
 DeviceManager::DeviceManager(QObject* parent)
     : QObject(parent)
     , m_pollTimer(new QTimer(this))
+    , m_autoConnectTimer(new QTimer(this))
 {
     // Poll for USB hotplug every 2 seconds
     connect(m_pollTimer, &QTimer::timeout, this, &DeviceManager::refreshPorts);
     m_pollTimer->start(2000);
+
+    // Auto-connect timer fires once after a short delay when new ports appear
+    m_autoConnectTimer->setSingleShot(true);
+    connect(m_autoConnectTimer, &QTimer::timeout, this, &DeviceManager::tryAutoConnect);
+
+    emit statusChanged(tr("Waiting for device..."));
     refreshPorts();
 }
 
@@ -52,10 +59,67 @@ void DeviceManager::refreshPorts()
     for (const auto& dev : rtlDevices)
         ports << dev;
 
+    // Check if connected port disappeared (USB unplug fallback)
+    if (isConnected() && !m_connectedPort.isEmpty() && !ports.contains(m_connectedPort)) {
+        qDebug() << "Connected port" << m_connectedPort << "disappeared — disconnecting";
+        disconnectDevice();
+        emit statusChanged(tr("Device disconnected — waiting for device..."));
+    }
+
     if (ports != m_lastPorts) {
+        // Find newly appeared ports
+        QStringList newPorts;
+        for (const auto& p : ports) {
+            if (!m_lastPorts.contains(p))
+                newPorts << p;
+        }
+
         m_lastPorts = ports;
         emit portsChanged(ports);
+
+        // If not connected and new ports appeared, schedule auto-connect
+        if (!isConnected() && !newPorts.isEmpty()) {
+            m_pendingPorts = newPorts;
+            m_autoConnectTimer->start(500); // brief delay for port initialization
+        }
     }
+
+    // If not connected and no auto-connect pending, keep showing waiting status
+    if (!isConnected() && !m_autoConnectTimer->isActive() && m_lastPorts.isEmpty()) {
+        emit statusChanged(tr("Waiting for device..."));
+    }
+}
+
+void DeviceManager::tryAutoConnect()
+{
+    if (isConnected())
+        return;
+
+    // Try each pending new port
+    for (const auto& port : std::as_const(m_pendingPorts)) {
+        emit autoConnectAttempting(port);
+        emit statusChanged(tr("Connecting to %1...").arg(port));
+
+        if (connectDevice(port, DeviceType::AutoDetect)) {
+            m_pendingPorts.clear();
+            return;
+        }
+    }
+
+    m_pendingPorts.clear();
+
+    // If all ports were already known but we're not connected, try them all
+    if (!isConnected() && !m_lastPorts.isEmpty()) {
+        for (const auto& port : std::as_const(m_lastPorts)) {
+            emit autoConnectAttempting(port);
+            emit statusChanged(tr("Connecting to %1...").arg(port));
+
+            if (connectDevice(port, DeviceType::AutoDetect))
+                return;
+        }
+    }
+
+    emit statusChanged(tr("Waiting for device..."));
 }
 
 bool DeviceManager::connectDevice(const QString& portOrPath, DeviceType type)
@@ -93,16 +157,22 @@ bool DeviceManager::connectDevice(const QString& portOrPath, DeviceType type)
     }
 
     m_currentDevice = device;
+    m_connectedPort = portOrPath;
 
-    // Forward device signals
+    // Forward device signals and handle unexpected disconnects
     connect(device, &ISpectrumDevice::connectionChanged, this, [this](bool connected) {
         if (!connected) {
+            // The device object will be cleaned up by whoever owns it —
+            // just null our pointer to prevent double-free
             m_currentDevice = nullptr;
+            m_connectedPort.clear();
             emit deviceDisconnected();
+            emit statusChanged(tr("Device disconnected — waiting for device..."));
         }
     });
     connect(device, &ISpectrumDevice::errorOccurred, this, &DeviceManager::errorOccurred);
 
+    emit statusChanged(tr("Connected to %1").arg(device->deviceName()));
     emit deviceConnected(device);
     return true;
 }
@@ -113,6 +183,7 @@ void DeviceManager::disconnectDevice()
         m_currentDevice->disconnectDevice();
         m_currentDevice->deleteLater();
         m_currentDevice = nullptr;
+        m_connectedPort.clear();
         emit deviceDisconnected();
     }
 }
