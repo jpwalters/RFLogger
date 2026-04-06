@@ -1,6 +1,7 @@
 #include "SpectrumWidget.h"
 
 #include <QMouseEvent>
+#include <cmath>
 
 SpectrumWidget::SpectrumWidget(QWidget* parent)
     : QCustomPlot(parent)
@@ -173,6 +174,33 @@ void SpectrumWidget::setAmplitudeRange(double minDbm, double maxDbm)
     replot();
 }
 
+void SpectrumWidget::autoFitAmplitude(const SweepData& sweep)
+{
+    if (sweep.isEmpty())
+        return;
+
+    double minDb = sweep.minAmplitude();
+    double maxDb = sweep.maxAmplitude();
+
+    // Add padding: 5 dBm above, 10 dBm below for visual breathing room
+    maxDb += 5.0;
+    minDb -= 10.0;
+
+    // Round to nearest 5 dBm for clean tick marks
+    minDb = std::floor(minDb / 5.0) * 5.0;
+    maxDb = std::ceil(maxDb / 5.0) * 5.0;
+
+    // Enforce a minimum span of 20 dBm so the graph isn't too cramped
+    if (maxDb - minDb < 20.0) {
+        double mid = (maxDb + minDb) / 2.0;
+        minDb = mid - 10.0;
+        maxDb = mid + 10.0;
+    }
+
+    yAxis->setRange(minDb, maxDb);
+    replot();
+}
+
 void SpectrumWidget::setMarkers(const QVector<FrequencyMarker>& markers)
 {
     m_markers = markers;
@@ -186,6 +214,17 @@ void SpectrumWidget::clearAll()
     m_averageGraph->data()->clear();
     clearHighlight();
     replot();
+}
+
+void SpectrumWidget::setCrosshairVisible(bool visible)
+{
+    m_crosshairEnabled = visible;
+    if (!visible) {
+        m_coordLabel->setVisible(false);
+        m_vCrosshair->setVisible(false);
+        m_hCrosshair->setVisible(false);
+        replot(QCustomPlot::rpQueuedReplot);
+    }
 }
 
 void SpectrumWidget::setHighlightFrequency(double freqHz)
@@ -263,6 +302,11 @@ void SpectrumWidget::updateMarkerLines()
 
 void SpectrumWidget::mouseMoveEvent(QMouseEvent* event)
 {
+    if (!m_crosshairEnabled) {
+        QCustomPlot::mouseMoveEvent(event);
+        return;
+    }
+
     double freqMHz = xAxis->pixelToCoord(event->pos().x());
     double ampDbm = yAxis->pixelToCoord(event->pos().y());
 

@@ -23,11 +23,13 @@ public:
 
     void setFrequencyRange(double startMHz, double stopMHz);
     void setAmplitudeRange(double minDbm, double maxDbm);
+    void autoFitAmplitude(const SweepData& sweep);
 
     void setMarkers(const QVector<FrequencyMarker>& markers);
     void setHighlightFrequency(double freqHz);
     void clearHighlight();
     void clearAll();
+    void setCrosshairVisible(bool visible);
 
 signals:
     void frequencyClicked(double freqHz);
@@ -54,4 +56,6 @@ private:
 
     QCPItemStraightLine* m_highlightLine = nullptr;
     QCPItemText* m_highlightLabel = nullptr;
+
+    bool m_crosshairEnabled = true;
 };

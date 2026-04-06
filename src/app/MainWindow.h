@@ -3,7 +3,10 @@
 #include "data/SweepData.h"
 
 #include <QMainWindow>
+#include <QMap>
 
+class QTimer;
+class QLabel;
 class DeviceManager;
 class ScanSession;
 class SpectrumWidget;
@@ -26,6 +29,8 @@ public:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
 private slots:
     void onDisconnect();
@@ -43,6 +48,7 @@ private:
     void saveSettings();
     void loadSettings();
     void updateDeviceLimits(ISpectrumDevice* device);
+    void toggleFullScreen();
 
     DeviceManager* m_deviceManager;
     ScanSession* m_session;
@@ -54,12 +60,23 @@ private:
     MarkerPanel* m_markerPanel;
     ExportPanel* m_exportPanel;
     FrequencyListPanel* m_frequencyListPanel;
+    QDockWidget* m_deviceDock = nullptr;
+    QDockWidget* m_captureDock = nullptr;
+    QDockWidget* m_exportDock = nullptr;
     QDockWidget* m_markerDock = nullptr;
     QDockWidget* m_frequencyListDock = nullptr;
     UpdateChecker* m_updateChecker = nullptr;
 
+    // Full-screen mode
+    bool m_fullScreen = false;
+    QAction* m_fullScreenAction = nullptr;
+    QMap<QDockWidget*, bool> m_dockVisibilityBeforeFullScreen;
+    QTimer* m_cursorHideTimer = nullptr;
+    QLabel* m_fullScreenHint = nullptr;
+
     // Quick-start: show a fast low-res first sweep before switching to full resolution
     bool m_quickStartPending = false;
+    bool m_amplitudeAutoFitPending = false;
     double m_fullResStartHz = 0.0;
     double m_fullResStopHz = 0.0;
     int m_fullResPoints = 0;

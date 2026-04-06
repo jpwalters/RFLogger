@@ -24,6 +24,8 @@
 #include <QStatusBar>
 #include <QLabel>
 #include <QCloseEvent>
+#include <QKeyEvent>
+#include <QMouseEvent>
 #include <QMessageBox>
 #include <QApplication>
 #include <QTimer>
@@ -81,6 +83,32 @@ MainWindow::MainWindow(QWidget* parent)
         statusBar()->showMessage(status);
     });
 
+    // Full-screen: cursor-hide timer and hint overlay
+    m_cursorHideTimer = new QTimer(this);
+    m_cursorHideTimer->setSingleShot(true);
+    m_cursorHideTimer->setInterval(3000);
+    connect(m_cursorHideTimer, &QTimer::timeout, this, [this]() {
+        if (m_fullScreen) {
+            qApp->setOverrideCursor(Qt::BlankCursor);
+            m_fullScreenHint->hide();
+            m_spectrumWidget->setCrosshairVisible(false);
+        }
+    });
+
+    m_fullScreenHint = new QLabel(tr("Press ESC to exit full screen"), this);
+    m_fullScreenHint->setStyleSheet(
+        "background-color: rgba(0, 0, 0, 160);"
+        "color: rgba(255, 255, 255, 200);"
+        "padding: 8px 16px;"
+        "border-radius: 4px;"
+        "font-size: 13px;"
+    );
+    m_fullScreenHint->setAlignment(Qt::AlignCenter);
+    m_fullScreenHint->adjustSize();
+    m_fullScreenHint->hide();
+
+    qApp->installEventFilter(this);
+
     loadSettings();
 }
 
@@ -120,6 +148,13 @@ void MainWindow::createMenus()
     viewMenu->addSeparator();
     viewMenu->addAction(m_markerDock->toggleViewAction());
     viewMenu->addAction(m_frequencyListDock->toggleViewAction());
+
+    viewMenu->addSeparator();
+    m_fullScreenAction = viewMenu->addAction(tr("&Full Screen"));
+    m_fullScreenAction->setCheckable(true);
+    m_fullScreenAction->setShortcut(QKeySequence(Qt::Key_F11));
+    m_fullScreenAction->setShortcutContext(Qt::ApplicationShortcut);
+    connect(m_fullScreenAction, &QAction::triggered, this, &MainWindow::toggleFullScreen);
 
     viewMenu->addSeparator();
     auto* showLiveAction = viewMenu->addAction(tr("Show &Live Trace"));
@@ -175,29 +210,29 @@ void MainWindow::createMenus()
 void MainWindow::createDockWidgets()
 {
     // Left dock: Device panel
-    auto* deviceDock = new QDockWidget(tr("Device"), this);
+    m_deviceDock = new QDockWidget(tr("Device"), this);
     m_devicePanel = new DevicePanel(m_deviceManager);
-    deviceDock->setWidget(m_devicePanel);
-    deviceDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
-    addDockWidget(Qt::LeftDockWidgetArea, deviceDock);
+    m_deviceDock->setWidget(m_devicePanel);
+    m_deviceDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+    addDockWidget(Qt::LeftDockWidgetArea, m_deviceDock);
 
     // Left dock: Capture controls (below device)
-    auto* captureDock = new QDockWidget(tr("Capture"), this);
+    m_captureDock = new QDockWidget(tr("Capture"), this);
     m_captureControls = new CaptureControls;
-    captureDock->setWidget(m_captureControls);
-    captureDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
-    addDockWidget(Qt::LeftDockWidgetArea, captureDock);
+    m_captureDock->setWidget(m_captureControls);
+    m_captureDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+    addDockWidget(Qt::LeftDockWidgetArea, m_captureDock);
 
     // Stack device and capture docks vertically
-    splitDockWidget(deviceDock, captureDock, Qt::Vertical);
+    splitDockWidget(m_deviceDock, m_captureDock, Qt::Vertical);
 
     // Left dock: Export panel (below capture)
-    auto* exportDock = new QDockWidget(tr("Export Scan"), this);
+    m_exportDock = new QDockWidget(tr("Export Scan"), this);
     m_exportPanel = new ExportPanel;
-    exportDock->setWidget(m_exportPanel);
-    exportDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
-    addDockWidget(Qt::LeftDockWidgetArea, exportDock);
-    splitDockWidget(captureDock, exportDock, Qt::Vertical);
+    m_exportDock->setWidget(m_exportPanel);
+    m_exportDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+    addDockWidget(Qt::LeftDockWidgetArea, m_exportDock);
+    splitDockWidget(m_captureDock, m_exportDock, Qt::Vertical);
 
     connect(m_exportPanel, &ExportPanel::exportRequested,
             this, &MainWindow::onExportFromPanel);
@@ -241,6 +276,9 @@ void MainWindow::onStartScan(double startHz, double stopHz, int points)
     m_session->clear();
     m_spectrumWidget->clearAll();
     m_waterfallWidget->clear();
+
+    // Auto-fit amplitude range after first full-resolution sweep
+    m_amplitudeAutoFitPending = true;
 
     // Set frequency range on spectrum widget
     m_spectrumWidget->setFrequencyRange(startHz / 1e6, stopHz / 1e6);
@@ -338,6 +376,12 @@ void MainWindow::onSweepReady(const SweepData& sweep)
         m_spectrumWidget->updateMaxHold(m_session->maxHold());
     if (m_captureControls->showAverage())
         m_spectrumWidget->updateAverage(m_session->average());
+
+    // Auto-fit Y-axis to actual signal range after first full-res sweep
+    if (m_amplitudeAutoFitPending) {
+        m_amplitudeAutoFitPending = false;
+        m_spectrumWidget->autoFitAmplitude(sweep);
+    }
 
     m_waterfallWidget->addSweep(sweep);
     m_captureControls->onSweepReceived();
@@ -466,6 +510,74 @@ void MainWindow::closeEvent(QCloseEvent* event)
     m_deviceManager->shutdown();
 
     event->accept();
+}
+
+void MainWindow::toggleFullScreen()
+{
+    const QList<QDockWidget*> docks = {
+        m_deviceDock, m_captureDock, m_exportDock,
+        m_markerDock, m_frequencyListDock
+    };
+
+    if (!m_fullScreen) {
+        // Save dock visibility before hiding
+        m_dockVisibilityBeforeFullScreen.clear();
+        for (auto* dock : docks)
+            m_dockVisibilityBeforeFullScreen[dock] = dock->isVisible();
+
+        for (auto* dock : docks)
+            dock->setVisible(false);
+
+        menuBar()->setVisible(false);
+        statusBar()->setVisible(false);
+        showFullScreen();
+        m_fullScreen = true;
+
+        // Show hint and start cursor-hide timer
+        m_fullScreenHint->adjustSize();
+        m_fullScreenHint->move((width() - m_fullScreenHint->width()) / 2, 32);
+        m_fullScreenHint->raise();
+        m_fullScreenHint->show();
+        m_cursorHideTimer->start();
+    } else {
+        m_cursorHideTimer->stop();
+        qApp->restoreOverrideCursor();
+        m_fullScreenHint->hide();
+        m_spectrumWidget->setCrosshairVisible(true);
+
+        for (auto* dock : docks)
+            dock->setVisible(m_dockVisibilityBeforeFullScreen.value(dock, true));
+
+        menuBar()->setVisible(true);
+        statusBar()->setVisible(true);
+        showNormal();
+        m_fullScreen = false;
+    }
+
+    if (m_fullScreenAction)
+        m_fullScreenAction->setChecked(m_fullScreen);
+}
+
+bool MainWindow::eventFilter(QObject* obj, QEvent* event)
+{
+    if (m_fullScreen && event->type() == QEvent::MouseMove) {
+        qApp->restoreOverrideCursor();
+        m_spectrumWidget->setCrosshairVisible(true);
+        m_fullScreenHint->move((width() - m_fullScreenHint->width()) / 2, 32);
+        m_fullScreenHint->raise();
+        m_fullScreenHint->show();
+        m_cursorHideTimer->start();
+    }
+    return QMainWindow::eventFilter(obj, event);
+}
+
+void MainWindow::keyPressEvent(QKeyEvent* event)
+{
+    if ((event->key() == Qt::Key_Escape || event->key() == Qt::Key_F11) && m_fullScreen) {
+        toggleFullScreen();
+        return;
+    }
+    QMainWindow::keyPressEvent(event);
 }
 
 void MainWindow::saveSettings()
