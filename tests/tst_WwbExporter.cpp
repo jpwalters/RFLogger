@@ -49,6 +49,28 @@ private slots:
         QVERIFY(content.contains("470.000000,-80.0"));
         QVERIFY(content.contains("471.000000,-75.0"));
     }
+
+    void formatEmptySweep()
+    {
+        SweepData s;
+        QString csv = WwbExporter::formatSweep(s);
+        QVERIFY(csv.isEmpty());
+    }
+
+    void formatSinglePoint()
+    {
+        SweepData s(470e6, 1e6, {-80.0});
+        QString csv = WwbExporter::formatSweep(s);
+        QStringList lines = csv.split('\n', Qt::SkipEmptyParts);
+        QCOMPARE(lines.size(), 1);
+        QCOMPARE(lines[0], "470.000000,-80.0");
+    }
+
+    void exportFailsForInvalidPath()
+    {
+        SweepData s(470e6, 1e6, {-80.0});
+        QVERIFY(!WwbExporter::exportToFile("Z:/nonexistent/path/file.csv", s));
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_WwbExporter)

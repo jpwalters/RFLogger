@@ -2,6 +2,7 @@ set(TEST_SOURCES
     tst_SweepData.cpp
     tst_ScanSession.cpp
     tst_WwbExporter.cpp
+    tst_GenericCsvExporter.cpp
 )
 
 foreach(test_src ${TEST_SOURCES})
@@ -11,6 +12,7 @@ foreach(test_src ${TEST_SOURCES})
         ${CMAKE_SOURCE_DIR}/src/data/SweepData.cpp
         ${CMAKE_SOURCE_DIR}/src/data/ScanSession.cpp
         ${CMAKE_SOURCE_DIR}/src/export/WwbExporter.cpp
+        ${CMAKE_SOURCE_DIR}/src/export/GenericCsvExporter.cpp
     )
     target_include_directories(${test_name} PRIVATE
         ${CMAKE_SOURCE_DIR}/src

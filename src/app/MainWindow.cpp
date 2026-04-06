@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "AboutDialog.h"
+#include "UpdateChecker.h"
 #include "SettingsManager.h"
 #include "devices/DeviceManager.h"
 #include "devices/ISpectrumDevice.h"
@@ -113,6 +114,8 @@ void MainWindow::createMenus()
 
     // Help menu
     auto* helpMenu = menuBar()->addMenu(tr("&Help"));
+    helpMenu->addAction(tr("Check for &Updates..."), this, &MainWindow::onCheckForUpdates);
+    helpMenu->addSeparator();
     helpMenu->addAction(tr("&About RF Logger"), this, &MainWindow::onAbout);
     helpMenu->addAction(tr("About &Qt"), qApp, &QApplication::aboutQt);
 
@@ -247,6 +250,39 @@ void MainWindow::onAbout()
 {
     AboutDialog dlg(this);
     dlg.exec();
+}
+
+void MainWindow::onCheckForUpdates()
+{
+    if (!m_updateChecker) {
+        m_updateChecker = new UpdateChecker(this);
+
+        connect(m_updateChecker, &UpdateChecker::updateAvailable, this,
+                [this](const QString& version, const QString& url) {
+                    QMessageBox msgBox(this);
+                    msgBox.setIcon(QMessageBox::Information);
+                    msgBox.setWindowTitle(tr("Update Available"));
+                    msgBox.setText(tr("A new version of RF Logger is available: <b>%1</b>").arg(version));
+                    msgBox.setInformativeText(
+                        tr("<a href=\"%1\">Download from GitHub</a>").arg(url));
+                    msgBox.setStandardButtons(QMessageBox::Ok);
+                    msgBox.exec();
+                });
+
+        connect(m_updateChecker, &UpdateChecker::upToDate, this, [this]() {
+            QMessageBox::information(this, tr("No Updates"),
+                                    tr("You are running the latest version of RF Logger."));
+        });
+
+        connect(m_updateChecker, &UpdateChecker::checkFailed, this,
+                [this](const QString& error) {
+                    QMessageBox::warning(this, tr("Update Check Failed"),
+                                         tr("Could not check for updates:\n%1").arg(error));
+                });
+    }
+
+    statusBar()->showMessage(tr("Checking for updates..."));
+    m_updateChecker->checkForUpdates();
 }
 
 void MainWindow::updateDeviceLimits(ISpectrumDevice* device)

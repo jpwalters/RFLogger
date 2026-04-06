@@ -12,6 +12,7 @@ class DevicePanel;
 class CaptureControls;
 class MarkerPanel;
 class ISpectrumDevice;
+class UpdateChecker;
 
 class MainWindow : public QMainWindow
 {
@@ -31,6 +32,7 @@ private slots:
     void onSweepReady(const SweepData& sweep);
     void onExport();
     void onAbout();
+    void onCheckForUpdates();
 
 private:
     void createMenus();
@@ -47,4 +49,5 @@ private:
     DevicePanel* m_devicePanel;
     CaptureControls* m_captureControls;
     MarkerPanel* m_markerPanel;
+    UpdateChecker* m_updateChecker = nullptr;
 };

@@ -33,7 +33,7 @@ if(APPLE)
 endif()
 
 # ── Qt 6 ──────────────────────────────────────────────────────────────────────
-find_package(Qt6 REQUIRED COMPONENTS Widgets Core Gui SerialPort PrintSupport)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Core Gui Network SerialPort PrintSupport)
 qt_standard_project_setup()
 
 # ── External: QCustomPlot ─────────────────────────────────────────────────────
@@ -133,6 +133,8 @@ set(RFLOGGER_SOURCES
     src/app/SettingsManager.cpp
     src/app/AboutDialog.h
     src/app/AboutDialog.cpp
+    src/app/UpdateChecker.h
+    src/app/UpdateChecker.cpp
     src/app/CrashHandler.h
     src/app/CrashHandler.cpp
     resources/rflogger.qrc
@@ -175,6 +177,7 @@ target_link_libraries(RFLogger PRIVATE
     Qt6::Widgets
     Qt6::Core
     Qt6::Gui
+    Qt6::Network
     Qt6::SerialPort
     Qt6::PrintSupport
     qcustomplot
