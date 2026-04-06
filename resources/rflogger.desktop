@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=RFLogger
+Comment=RF Spectrum Logger for Pro Audio
+Exec=RFLogger
+Icon=rflogger
+Categories=AudioVideo;Audio;Utility;
+Terminal=false

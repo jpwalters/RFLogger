@@ -2,6 +2,7 @@
 #include "Version.h"
 
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
 
@@ -9,9 +10,15 @@ AboutDialog::AboutDialog(QWidget* parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("About RF Logger"));
-    setFixedSize(400, 280);
+    setFixedSize(400, 420);
 
     auto* layout = new QVBoxLayout(this);
+
+    auto* logoLabel = new QLabel();
+    QPixmap logoPixmap(":/icons/rflogger.png");
+    logoLabel->setPixmap(logoPixmap.scaled(128, 128, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    logoLabel->setAlignment(Qt::AlignCenter);
+    layout->addWidget(logoLabel);
 
     auto* title = new QLabel(tr("<h2>RF Logger</h2>"));
     title->setAlignment(Qt::AlignCenter);

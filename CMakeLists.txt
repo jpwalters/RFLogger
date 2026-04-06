@@ -136,6 +136,12 @@ set(RFLOGGER_SOURCES
     resources/rflogger.qrc
 )
 
+if(WIN32)
+    list(APPEND RFLOGGER_SOURCES
+        resources/rflogger.rc
+    )
+endif()
+
 # RTL-SDR device only if library found
 if(RTLSDR_FOUND)
     list(APPEND RFLOGGER_SOURCES
@@ -179,11 +185,36 @@ if(RTLSDR_FOUND)
     target_link_libraries(RFLogger PRIVATE ${RTLSDR_LIBRARIES})
 endif()
 
+# ── Dev-time Qt deployment (Windows) ─────────────────────────────────────────
+if(WIN32)
+    find_program(WINDEPLOYQT windeployqt HINTS "${Qt6_DIR}/../../../bin")
+    if(WINDEPLOYQT)
+        add_custom_command(TARGET RFLogger POST_BUILD
+            COMMAND "${WINDEPLOYQT}"
+                    --no-compiler-runtime
+                    --no-translations
+                    "$<TARGET_FILE:RFLogger>"
+            COMMENT "Running windeployqt to deploy Qt DLLs..."
+        )
+    else()
+        message(WARNING "windeployqt not found — Qt DLLs will not be auto-deployed to build dir")
+    endif()
+endif()
+
 # ── Tests ─────────────────────────────────────────────────────────────────────
 if(RFLOGGER_BUILD_TESTS)
     enable_testing()
     find_package(Qt6 REQUIRED COMPONENTS Test)
     add_subdirectory(tests)
+endif()
+
+# ── Qt deploy script (bundles Qt DLLs on install) ────────────────────────────
+if(WIN32 OR APPLE)
+    qt_generate_deploy_app_script(
+        TARGET RFLogger
+        OUTPUT_SCRIPT deploy_script
+        NO_UNSUPPORTED_PLATFORM_ERROR
+    )
 endif()
 
 # ── Install / CPack ──────────────────────────────────────────────────────────
@@ -192,8 +223,38 @@ install(TARGETS RFLogger
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
+if(WIN32 OR APPLE)
+    install(SCRIPT "${deploy_script}")
+endif()
+
+# Linux desktop integration files (used by AppImage / system installs)
+if(UNIX AND NOT APPLE)
+    install(FILES "${CMAKE_SOURCE_DIR}/resources/rflogger.desktop"
+            DESTINATION share/applications)
+    install(FILES "${CMAKE_SOURCE_DIR}/resources/icons/rflogger.png"
+            DESTINATION share/icons/hicolor/32x32/apps)
+endif()
+
 set(CPACK_PACKAGE_NAME "RFLogger")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_VENDOR "RF Logger Project")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "RF Spectrum Logger for Pro Audio")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
+
+# ── Windows NSIS installer settings ──────────────────────────────────────────
+if(WIN32)
+    set(CPACK_GENERATOR "NSIS")
+    set(CPACK_NSIS_DISPLAY_NAME "RFLogger ${PROJECT_VERSION}")
+    set(CPACK_NSIS_PACKAGE_NAME "RFLogger")
+    set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
+    set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
+    set(CPACK_NSIS_MUI_ICON "${CMAKE_SOURCE_DIR}/resources/icons/rflogger.ico")
+    set(CPACK_NSIS_MUI_UNIICON "${CMAKE_SOURCE_DIR}/resources/icons/rflogger.ico")
+    set(CPACK_NSIS_URL_INFO_ABOUT "https://github.com/jpwalters/RFLogger")
+    set(CPACK_NSIS_CREATE_ICONS_EXTRA
+        "CreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\RFLogger.lnk' '$INSTDIR\\\\bin\\\\RFLogger.exe'")
+    set(CPACK_NSIS_DELETE_ICONS_EXTRA
+        "Delete '$SMPROGRAMS\\\\$MUI_TEMP\\\\RFLogger.lnk'")
+endif()
+
 include(CPack)

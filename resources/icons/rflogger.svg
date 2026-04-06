@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+    <!-- Dark subtle rounded background typical of modern pro audio tools -->
+    <rect width="512" height="512" rx="110" fill="#1e1e24" />
+    
+    <!-- Grid lines for spectrum analyzer look -->
+    <g stroke="#3a3a45" stroke-width="2" opacity="0.6">
+        <line x1="80" y1="128" x2="432" y2="128" />
+        <line x1="80" y1="213" x2="432" y2="213" />
+        <line x1="80" y1="298" x2="432" y2="298" />
+        <line x1="80" y1="384" x2="432" y2="384" />
+        <line x1="166" y1="80" x2="166" y2="432" />
+        <line x1="256" y1="80" x2="256" y2="432" />
+        <line x1="346" y1="80" x2="346" y2="432" />
+    </g>
+
+    <!-- RF Waveform #1 - Base level -->
+    <path d="M 80 384 Q 130 384 150 280 T 220 280 T 260 360 T 320 320 T 380 384 L 432 384" 
+          fill="none" stroke="#2563eb" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity="0.8" />
+          
+    <!-- RF Waveform #2 - Main active signal with glow -->
+    <path d="M 80 384 Q 140 384 180 180 T 256 120 T 300 240 T 360 160 T 400 384 L 432 384" 
+          fill="none" stroke="#10b981" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" />
+          
+    <!-- Subtle gradient fill under the main signal -->
+    <path d="M 80 384 Q 140 384 180 180 T 256 120 T 300 240 T 360 160 T 400 384 L 432 384 L 432 432 L 80 432 Z" 
+          fill="#10b981" opacity="0.15" />
+
+    <!-- Antenna/Signal transmission indicator in the top right -->
+    <g stroke="#f59e0b" stroke-width="12" stroke-linecap="round" fill="none">
+        <circle cx="380" cy="130" r="12" fill="#f59e0b" />
+        <path d="M 380 90 A 40 40 0 0 1 420 130" />
+        <path d="M 380 60 A 70 70 0 0 1 450 130" />
+    </g>
+
+    <!-- Frame border -->
+    <rect x="80" y="80" width="352" height="352" rx="16" fill="none" stroke="#4b5563" stroke-width="6" />
+</svg>
