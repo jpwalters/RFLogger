@@ -175,9 +175,9 @@ Pre-built binaries are available on the [Releases](https://github.com/jpwalters/
 
 | Platform | Package | Notes |
 |----------|---------|-------|
-| Windows | 7z archive | Bundled Qt DLLs via windeployqt |
+| Windows | NSIS installer (`.exe`) | Bundled Qt DLLs, Start Menu shortcut |
 | macOS | DMG | Apple Silicon, code-signed and notarized |
-| Linux | tar.gz | x86_64, bundled Qt libraries |
+| Linux | AppImage | x86_64, bundled Qt libraries |
 
 ## License
 
