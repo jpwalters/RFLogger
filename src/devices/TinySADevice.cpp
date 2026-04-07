@@ -359,7 +359,7 @@ void TinySADevice::processIncrementalScan()
     }
 
     // Step 2: How many complete 3-byte points are available?
-    int availableBytes = m_buffer.size() - m_scanDataOffset;
+    int availableBytes = static_cast<int>(m_buffer.size()) - m_scanDataOffset;
     int availablePoints = std::min(availableBytes / 3, m_sweepPoints);
     int newPoints = availablePoints - m_parsedScanPoints;
 

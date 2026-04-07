@@ -21,7 +21,7 @@ public:
     SweepData maxHold() const;
     SweepData average() const;
 
-    int sweepCount() const { return m_sweeps.size(); }
+    int sweepCount() const { return static_cast<int>(m_sweeps.size()); }
     bool isEmpty() const { return m_sweeps.isEmpty(); }
 
     const QVector<SweepData>& sweeps() const { return m_sweeps; }

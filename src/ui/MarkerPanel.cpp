@@ -56,7 +56,7 @@ void MarkerPanel::addMarkerAtFrequency(double freqHz)
         QColor(0, 255, 255),   // Cyan
         QColor(255, 128, 128), // Light red
     };
-    marker.color = defaultColors[m_markers.size() % 5];
+    marker.color = defaultColors[static_cast<int>(m_markers.size()) % 5];
 
     m_markers.append(marker);
     refreshList();
@@ -76,7 +76,7 @@ void MarkerPanel::onAddClicked()
 void MarkerPanel::onRemoveClicked()
 {
     int row = m_listWidget->currentRow();
-    if (row < 0 || row >= m_markers.size())
+    if (row < 0 || row >= static_cast<int>(m_markers.size()))
         return;
 
     m_markers.removeAt(row);

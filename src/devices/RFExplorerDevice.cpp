@@ -500,7 +500,7 @@ void RFExplorerDevice::processScanData(const QByteArray& data, int sweepPoints)
 
     QVector<double> amplitudes(sweepPoints);
 
-    for (int i = 0; i < sweepPoints && i < data.size(); ++i) {
+    for (int i = 0; i < sweepPoints && i < static_cast<int>(data.size()); ++i) {
         // Each byte is an amplitude value: dBm = byte_value / -2.0
         // So 0 = 0 dBm, 1 = -0.5 dBm, 240 = -120 dBm
         unsigned char raw = static_cast<unsigned char>(data[i]);
@@ -525,17 +525,17 @@ void RFExplorerDevice::processScanData(const QByteArray& data, int sweepPoints)
 
     m_accumBuffer.append(amplitudes);
 
-    int pct = static_cast<int>(m_accumBuffer.size() * 100 / m_accumTarget);
+    int pct = static_cast<int>(m_accumBuffer.size()) * 100 / m_accumTarget;
     emit sweepProgress(std::min(pct, 99));
 
     // Emit partial sweep so the UI can graph data as it arrives
-    double partialStepHz = (m_accumBuffer.size() > 1)
+    double partialStepHz = (static_cast<int>(m_accumBuffer.size()) > 1)
         ? (m_desiredStopHz - m_desiredStartHz) / (m_accumTarget - 1)
         : m_accumStepHz;
     SweepData partial(m_desiredStartHz, partialStepHz, m_accumBuffer);
     emit partialSweepReady(partial);
 
-    if (m_accumBuffer.size() >= m_accumTarget) {
+    if (static_cast<int>(m_accumBuffer.size()) >= m_accumTarget) {
         // Trim to exact target in case the device overshot slightly
         m_accumBuffer.resize(m_accumTarget);
 

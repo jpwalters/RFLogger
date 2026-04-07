@@ -147,7 +147,7 @@ void ExportDialog::updatePreview()
         QStringList lines = full.split('\n', Qt::SkipEmptyParts);
         QStringList preview = lines.mid(0, 10);
         if (lines.size() > 10)
-            preview << QString("... (%1 more lines)").arg(lines.size() - 10);
+            preview << QString("... (%1 more lines)").arg(static_cast<int>(lines.size()) - 10);
         m_preview->setPlainText(preview.join('\n'));
     } else {
         m_preview->setPlainText(tr("(preview not available for this format)"));

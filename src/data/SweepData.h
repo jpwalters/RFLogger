@@ -14,7 +14,7 @@ public:
     double stepSizeHz() const { return m_stepSizeHz; }
     double stopFreqHz() const;
     double frequencyAtIndex(int index) const;
-    int count() const { return m_amplitudes.size(); }
+    int count() const { return static_cast<int>(m_amplitudes.size()); }
     bool isEmpty() const { return m_amplitudes.isEmpty(); }
 
     const QVector<double>& amplitudes() const { return m_amplitudes; }

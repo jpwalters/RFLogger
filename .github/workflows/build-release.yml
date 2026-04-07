@@ -92,6 +92,10 @@ jobs:
 
       # ── Package ──────────────────────────────────────────────────────────
 
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        run: choco install nsis -y
+
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: bash

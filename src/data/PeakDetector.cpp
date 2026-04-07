@@ -11,7 +11,7 @@ double PeakDetector::estimateNoiseFloor(const QVector<double>& amplitudes) const
     // Use the median as a robust noise floor estimate
     QVector<double> sorted = amplitudes;
     std::sort(sorted.begin(), sorted.end());
-    return sorted[sorted.size() / 2];
+    return sorted[static_cast<int>(sorted.size()) / 2];
 }
 
 QVector<DetectedSignal> PeakDetector::detect(const SweepData& sweep) const
@@ -22,7 +22,7 @@ QVector<DetectedSignal> PeakDetector::detect(const SweepData& sweep) const
         return detected;
 
     const auto& amps = sweep.amplitudes();
-    const int n = amps.size();
+    const int n = static_cast<int>(amps.size());
     if (n < 3)
         return detected;
 
@@ -49,11 +49,11 @@ QVector<DetectedSignal> PeakDetector::detect(const SweepData& sweep) const
     });
 
     QVector<bool> suppressed(peaks.size(), false);
-    for (int i = 0; i < peaks.size(); ++i) {
+    for (int i = 0; i < static_cast<int>(peaks.size()); ++i) {
         if (suppressed[i])
             continue;
         double freqI = sweep.frequencyAtIndex(peaks[i].index);
-        for (int j = i + 1; j < peaks.size(); ++j) {
+        for (int j = i + 1; j < static_cast<int>(peaks.size()); ++j) {
             if (suppressed[j])
                 continue;
             double freqJ = sweep.frequencyAtIndex(peaks[j].index);
@@ -63,7 +63,7 @@ QVector<DetectedSignal> PeakDetector::detect(const SweepData& sweep) const
     }
 
     // Build detected signals with bandwidth estimation
-    for (int i = 0; i < peaks.size(); ++i) {
+    for (int i = 0; i < static_cast<int>(peaks.size()); ++i) {
         if (suppressed[i])
             continue;
 

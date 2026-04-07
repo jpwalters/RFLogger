@@ -22,7 +22,7 @@ void ScanSession::addSweep(const SweepData& sweep)
     }
 
     const auto& amps = sweep.amplitudes();
-    for (int i = 0; i < count && i < amps.size(); ++i) {
+    for (int i = 0; i < count && i < static_cast<int>(amps.size()); ++i) {
         m_maxHoldAmplitudes[i] = std::max(m_maxHoldAmplitudes[i], amps[i]);
         m_sumAmplitudes[i] += amps[i];
     }
@@ -63,9 +63,9 @@ SweepData ScanSession::average() const
     if (m_sweeps.isEmpty())
         return {};
 
-    const int n = m_sweeps.size();
+    const int n = static_cast<int>(m_sweeps.size());
     QVector<double> avgAmps(m_sumAmplitudes.size());
-    for (int i = 0; i < avgAmps.size(); ++i) {
+    for (int i = 0; i < static_cast<int>(avgAmps.size()); ++i) {
         avgAmps[i] = m_sumAmplitudes[i] / n;
     }
 

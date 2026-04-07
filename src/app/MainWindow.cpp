@@ -121,15 +121,15 @@ void MainWindow::createMenus()
     // File menu
     auto* fileMenu = menuBar()->addMenu(tr("&File"));
 
-    auto* exportAction = fileMenu->addAction(tr("&Export Scan..."), this, &MainWindow::onExport, QKeySequence("Ctrl+E"));
+    auto* exportAction = fileMenu->addAction(tr("&Export Scan..."), QKeySequence("Ctrl+E"), this, &MainWindow::onExport);
     exportAction->setEnabled(true);
 
     fileMenu->addSeparator();
-    fileMenu->addAction(tr("E&xit"), this, &QWidget::close, QKeySequence::Quit);
+    fileMenu->addAction(tr("E&xit"), QKeySequence::Quit, this, &QWidget::close);
 
     // View menu
     auto* viewMenu = menuBar()->addMenu(tr("&View"));
-    viewMenu->addAction(tr("&Reset Zoom"), m_spectrumWidget, [this]() {
+    viewMenu->addAction(tr("&Reset Zoom"), QKeySequence("Ctrl+0"), m_spectrumWidget, [this]() {
         auto* dev = m_deviceManager->currentDevice();
         if (dev) {
             m_spectrumWidget->setFrequencyRange(
@@ -137,13 +137,13 @@ void MainWindow::createMenus()
                 m_captureControls->stopFreqMHz());
         }
         m_spectrumWidget->setAmplitudeRange(-120, 5);
-    }, QKeySequence("Ctrl+0"));
+    });
 
-    viewMenu->addAction(tr("&Clear Traces"), this, [this]() {
+    viewMenu->addAction(tr("&Clear Traces"), QKeySequence("Ctrl+L"), this, [this]() {
         m_spectrumWidget->clearAll();
         m_waterfallWidget->clear();
         m_session->clear();
-    }, QKeySequence("Ctrl+L"));
+    });
 
     viewMenu->addSeparator();
     viewMenu->addAction(m_markerDock->toggleViewAction());

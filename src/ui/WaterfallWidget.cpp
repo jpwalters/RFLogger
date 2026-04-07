@@ -100,8 +100,8 @@ void WaterfallWidget::rebuildImage()
     if (m_rows.isEmpty())
         return;
 
-    int cols = m_rows.first().amplitudes.size();
-    int rows = m_rows.size();
+    int cols = static_cast<int>(m_rows.first().amplitudes.size());
+    int rows = static_cast<int>(m_rows.size());
 
     if (cols <= 0 || rows <= 0)
         return;
@@ -112,12 +112,12 @@ void WaterfallWidget::rebuildImage()
         const auto& row = m_rows[y];
         auto* scanLine = reinterpret_cast<QRgb*>(m_image.scanLine(y));
 
-        for (int x = 0; x < cols && x < row.amplitudes.size(); ++x) {
+        for (int x = 0; x < cols && x < static_cast<int>(row.amplitudes.size()); ++x) {
             QColor c = amplitudeToColor(row.amplitudes[x]);
             scanLine[x] = c.rgb();
         }
         // Fill remaining pixels if row is shorter
-        for (int x = row.amplitudes.size(); x < cols; ++x) {
+        for (int x = static_cast<int>(row.amplitudes.size()); x < cols; ++x) {
             scanLine[x] = qRgb(10, 10, 10);
         }
     }

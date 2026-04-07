@@ -128,7 +128,7 @@ void FrequencyListPanel::onThresholdChanged(int value)
 
 void FrequencyListPanel::onListenClicked(int row)
 {
-    if (row < 0 || row >= m_signals.size())
+    if (row < 0 || row >= static_cast<int>(m_signals.size()))
         return;
 
     if (m_listeningRow == row) {
@@ -148,9 +148,9 @@ void FrequencyListPanel::onListenClicked(int row)
 
 void FrequencyListPanel::updateTable()
 {
-    m_table->setRowCount(m_signals.size());
+    m_table->setRowCount(static_cast<int>(m_signals.size()));
 
-    for (int i = 0; i < m_signals.size(); ++i) {
+    for (int i = 0; i < static_cast<int>(m_signals.size()); ++i) {
         const auto& sig = m_signals[i];
 
         auto* freqItem = new QTableWidgetItem(

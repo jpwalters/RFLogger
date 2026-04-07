@@ -7,35 +7,51 @@ Cross-platform (Mac, Windows & Linux) RF spectrum analyzer for the pro audio ind
 ## Features
 
 ### Spectrum Analysis
-- **Real-time spectrum display** with live, max hold, and average traces
+- **Real-time spectrum display** with live, max hold, and average traces (individually togglable)
 - **Interactive pan & zoom** — drag and scroll to explore frequency and amplitude ranges
+- **Crosshair overlay** with live frequency/amplitude readout on mouse hover
 - **Sweep statistics** — live sweep count, sweep rate (sweeps/sec), and elapsed time
+- **Quick-start optimization** — high-point scans show an immediate low-resolution preview, then reconfigure to full resolution
+- **Auto-fit amplitude** — automatically scales the amplitude axis after the first full-resolution sweep
 
 ### Waterfall / Spectrogram
 - Time-scrolling spectrogram with configurable depth (default 200 rows)
 - Color gradient mapping from dark blue (noise floor) through cyan, green, yellow, to red (strongest signals)
+- Adjustable amplitude range and time depth
 
 ### Frequency Markers
 - Add markers by clicking the spectrum or via the marker panel dialog
 - Custom labels, colors, and per-marker visibility toggle
 - Default color cycle: yellow, orange, magenta, cyan, light red
 
+### Peak Detection / Detected Frequencies
+- **Automatic signal detection** — finds local maxima above a noise-floor-relative threshold
+- **Configurable threshold** — adjustable dB offset above the estimated noise floor (default 10 dB)
+- **–3 dB bandwidth estimation** per detected peak
+- **Peak merging** — collapses nearby peaks within a minimum separation (default 25 kHz)
+- **Sortable frequency list** with frequency, amplitude, and bandwidth columns
+- **Auto-refresh** or manual detect-now modes
+- Click a detected frequency to highlight it on the spectrum
+
 ### Export
 - **Shure WWB CSV** — direct import into Wireless Workbench
 - **Generic CSV** — includes metadata headers (date, device, session, frequency range)
 - **Export dialog** with data source selection (max hold, average, or last sweep) and live preview of the first 10 lines
+- **Quick-export panel** — dockable panel with format and data source dropdowns for one-click export
 
 ### Device Management
 - **Auto-detection** of device type on connection
 - **USB hotplug** — serial port polling every 2 seconds with automatic connect on new device appearance
 - **Graceful disconnect** on USB unplug with status feedback
-- Color-coded status indicator (waiting → connecting → connected → scanning)
+- Status indicator (waiting → connecting → connected → scanning)
 
 ### User Interface
 - **Dark theme** optimized for stage and production environments
-- **Dockable panels** — device info, capture controls, and marker panel are movable and floatable
+- **Dockable panels** — device info, capture controls, export, markers, and detected frequencies panels are movable, floatable, and closable
+- **Full-screen mode** — hides all docks, auto-hides cursor after 3 seconds of inactivity
 - **Settings persistence** — window geometry and capture parameters saved between sessions
-- **Crash handler** — global exception handling with error dialog and graceful shutdown
+- **Update checker** — checks for new releases via the GitHub Releases API
+- **Crash handler** — global exception handling (C++ exceptions, POSIX signals, Windows SEH) with crash log written to disk
 
 ## Supported Devices
 
@@ -43,8 +59,8 @@ Cross-platform (Mac, Windows & Linux) RF spectrum analyzer for the pro audio ind
 |--------|-----------|----------------|-------------|--------|
 | RF Explorer (Basic) | USB Serial (500 000 baud) | Model-dependent (433 MHz–6 GHz) | 112–4096 | ✅ Supported |
 | RF Explorer (PLUS) | USB Serial (500 000 baud) | Model-dependent (433 MHz–6 GHz) | 112–4096 | ✅ Supported |
-| TinySA Basic | USB Serial (115 200 baud) | 100 kHz–960 MHz | 450 default | ✅ Supported |
-| TinySA Ultra | USB Serial (115 200 baud) | 100 kHz–6 GHz | 450 default | ✅ Supported |
+| TinySA Basic | USB Serial (115 200 baud) | Low 100 kHz–350 MHz / High 240–960 MHz | 51–65 535 | ✅ Supported |
+| TinySA Ultra | USB Serial (115 200 baud) | 100 kHz–6 GHz | 25–65 535 | ✅ Supported |
 | RTL-SDR | USB (librtlsdr) | Device-dependent | Device-dependent | 🔧 Optional |
 
 ## Keyboard Shortcuts
@@ -54,6 +70,8 @@ Cross-platform (Mac, Windows & Linux) RF spectrum analyzer for the pro audio ind
 | `Ctrl+E` | Export scan data |
 | `Ctrl+L` | Clear traces |
 | `Ctrl+0` | Reset zoom |
+| `F11` | Toggle full screen |
+| `ESC` | Exit full screen |
 | `Ctrl+Q` | Exit |
 
 ## Building
@@ -61,7 +79,7 @@ Cross-platform (Mac, Windows & Linux) RF spectrum analyzer for the pro audio ind
 ### Prerequisites
 
 - **CMake** 3.21+
-- **Qt 6.6+** with modules: Widgets, Core, Gui, SerialPort, PrintSupport
+- **Qt 6.6+** with modules: Widgets, Core, Gui, Network, SerialPort, PrintSupport
 - **C++20** compiler (MSVC 2022, GCC 12+, Clang 14+, Apple Clang 15+)
 - **librtlsdr** (optional, for RTL-SDR device support)
 
@@ -157,15 +175,18 @@ cd build && ctest --output-on-failure -C Release
 ```
 src/
 ├── main.cpp                  Entry point
-├── app/                      MainWindow, AboutDialog, SettingsManager, CrashHandler
+├── app/                      MainWindow, AboutDialog, SettingsManager,
+│                             UpdateChecker, CrashHandler
 ├── config/                   Version.h.in template
-├── data/                     SweepData, ScanSession, FrequencyMarker
+├── data/                     SweepData, ScanSession, FrequencyMarker,
+│                             DetectedSignal, PeakDetector
 ├── devices/                  ISpectrumDevice, RFExplorerDevice, TinySADevice,
 │                             RtlSdrDevice (optional), DeviceManager
 ├── export/                   WwbExporter, GenericCsvExporter
 ├── theme/                    DarkTheme
 └── ui/                       SpectrumWidget, WaterfallWidget, DevicePanel,
-                              CaptureControls, MarkerPanel, ExportDialog
+                              CaptureControls, MarkerPanel, ExportPanel,
+                              ExportDialog, FrequencyListPanel
 tests/                        Qt Test suite
 resources/                    Icons, .qrc, .rc, .desktop
 cmake/                        FindRtlSdr.cmake
