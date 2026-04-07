@@ -76,6 +76,13 @@ set(KISSFFT_TOOLS OFF CACHE BOOL "" FORCE)
 set(KISSFFT_STATIC ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(kissfft)
 
+# Suppress warnings from third-party KissFFT code
+if(TARGET kissfft)
+    target_compile_options(kissfft PRIVATE
+        $<$<C_COMPILER_ID:Clang,AppleClang,GNU>:-w>
+    )
+endif()
+
 # ── External: RTL-SDR (optional) ──────────────────────────────────────────────
 if(RFLOGGER_ENABLE_RTLSDR)
     list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")

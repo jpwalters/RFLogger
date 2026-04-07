@@ -95,17 +95,23 @@ jobs:
           APPLE_NOTARY_USER:     ${{ secrets.APPLE_NOTARY_USER }}
           APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
         run: |
-          # Use --info on a fake ID to validate credentials without submitting
-          # A successful auth returns "not found" (2); bad credentials return 69 (401)
-          xcrun notarytool info "00000000-0000-0000-0000-000000000000" \
+          # Query a fake submission ID to validate credentials without submitting.
+          # Valid credentials → "Submission does not exist" (auth succeeded, ID not found)
+          # Invalid credentials → "Invalid credentials" (HTTP 401)
+          OUTPUT=$(xcrun notarytool info "00000000-0000-0000-0000-000000000000" \
             --apple-id "$APPLE_NOTARY_USER" \
             --password "$APPLE_NOTARY_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID" 2>&1 && true
+            --team-id "$APPLE_TEAM_ID" 2>&1 || true)
 
-          STATUS=$?
-          if [ $STATUS -eq 69 ]; then
+          echo "$OUTPUT"
+
+          if echo "$OUTPUT" | grep -qi "Invalid credentials"; then
             echo "::error::Notarytool authentication failed (HTTP 401). Check APPLE_NOTARY_USER, APPLE_NOTARY_PASSWORD, and APPLE_TEAM_ID."
             exit 1
           fi
 
-          echo "✓ Notarytool credentials are valid (exit code: $STATUS)"
+          if echo "$OUTPUT" | grep -qi "does not exist"; then
+            echo "✓ Notarytool credentials are valid (authenticated successfully)"
+          else
+            echo "::warning::Unexpected response — review output above"
+          fi
