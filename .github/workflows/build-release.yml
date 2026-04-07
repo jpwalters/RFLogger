@@ -140,6 +140,7 @@ jobs:
           mv RFLogger-*.AppImage "${{ matrix.artifact }}.AppImage"
 
       - name: Upload artifact
+        if: "!(runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v'))"
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -238,8 +239,10 @@ jobs:
           echo "$SUBMIT_OUT"
 
           # Extract submission ID and status
-          SUB_ID=$(echo "$SUBMIT_OUT" | grep -m1 'id:' | awk '{print $2}')
-          STATUS=$(echo "$SUBMIT_OUT" | grep -m1 'status:' | awk '{print $2}')
+          SUB_ID=$(echo "$SUBMIT_OUT" | grep -m1 '  id:' | awk '{print $2}')
+          STATUS=$(echo "$SUBMIT_OUT" | grep -m1 '  status:' | sed 's/.*status: *//' | awk '{print $1}' | tr -d '.')
+
+          echo "Parsed status: '$STATUS'"
 
           if [ "$STATUS" != "Accepted" ]; then
             echo "::error::Notarization failed with status: $STATUS"
