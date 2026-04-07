@@ -35,15 +35,28 @@ private slots:
 
     void averageComputesCorrectly()
     {
+        // Averaging is done in the linear power domain:
+        //   avg_dBm = 10 * log10( mean( 10^(dBm_i/10) ) )
         ScanSession session;
 
-        session.addSweep(SweepData(470e6, 1e6, {-80.0, -60.0}));
-        session.addSweep(SweepData(470e6, 1e6, {-40.0, -100.0}));
+        session.addSweep(SweepData(470e6, 1e6, {-30.0, -50.0}));
+        session.addSweep(SweepData(470e6, 1e6, {-30.0, -50.0}));
 
+        // Identical sweeps: linear average equals the original values
         auto avg = session.average();
         QCOMPARE(avg.amplitudes().size(), 2);
-        QCOMPARE(avg.amplitudes()[0], -60.0);  // (-80 + -40) / 2
-        QCOMPARE(avg.amplitudes()[1], -80.0);  // (-60 + -100) / 2
+        QVERIFY(qAbs(avg.amplitudes()[0] - (-30.0)) < 0.01);
+        QVERIFY(qAbs(avg.amplitudes()[1] - (-50.0)) < 0.01);
+
+        // Non-trivial case: -30 dBm and -40 dBm
+        //   linear mean = (1e-3 + 1e-4) / 2 = 5.5e-4
+        //   => 10*log10(5.5e-4) ≈ -32.596 dBm
+        ScanSession session2;
+        session2.addSweep(SweepData(470e6, 1e6, {-30.0}));
+        session2.addSweep(SweepData(470e6, 1e6, {-40.0}));
+
+        auto avg2 = session2.average();
+        QVERIFY(qAbs(avg2.amplitudes()[0] - (-32.596)) < 0.01);
     }
 
     void clearResetsSession()
@@ -183,13 +196,16 @@ private slots:
 
     void averageWithThreeSweeps()
     {
+        // Linear average of -90, -60, -30 dBm:
+        //   mean(1e-9, 1e-6, 1e-3) = 3.33700e-4
+        //   => 10*log10(3.337e-4) ≈ -34.767 dBm
         ScanSession session;
         session.addSweep(SweepData(470e6, 1e6, {-90.0}));
         session.addSweep(SweepData(470e6, 1e6, {-60.0}));
         session.addSweep(SweepData(470e6, 1e6, {-30.0}));
 
         auto avg = session.average();
-        QCOMPARE(avg.amplitudes()[0], -60.0);  // (-90 + -60 + -30) / 3
+        QVERIFY(qAbs(avg.amplitudes()[0] - (-34.767)) < 0.01);
     }
 };
 

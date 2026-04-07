@@ -1,6 +1,7 @@
 #include "ScanSession.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 ScanSession::ScanSession(QObject* parent)
@@ -24,7 +25,9 @@ void ScanSession::addSweep(const SweepData& sweep)
     const auto& amps = sweep.amplitudes();
     for (int i = 0; i < count && i < static_cast<int>(amps.size()); ++i) {
         m_maxHoldAmplitudes[i] = std::max(m_maxHoldAmplitudes[i], amps[i]);
-        m_sumAmplitudes[i] += amps[i];
+        // Accumulate in linear power domain so the average is correct.
+        // Summing dBm directly would underestimate the true mean power.
+        m_sumAmplitudes[i] += std::pow(10.0, amps[i] / 10.0);
     }
 
     m_sweeps.append(sweep);
@@ -66,7 +69,8 @@ SweepData ScanSession::average() const
     const int n = static_cast<int>(m_sweeps.size());
     QVector<double> avgAmps(m_sumAmplitudes.size());
     for (int i = 0; i < static_cast<int>(avgAmps.size()); ++i) {
-        avgAmps[i] = m_sumAmplitudes[i] / n;
+        // Convert mean linear power back to dBm
+        avgAmps[i] = 10.0 * std::log10(m_sumAmplitudes[i] / n);
     }
 
     const auto& ref = m_sweeps.first();
