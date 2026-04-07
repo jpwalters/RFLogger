@@ -98,7 +98,7 @@ void handleCrash(const QString& errorType, const QString& detail)
 {
     QString logPath = writeCrashLog(errorType, detail);
     showCrashMessage(errorType, detail, logPath);
-    _exit(1);
+    std::_Exit(1);
 }
 
 // ── C++ terminate handler ────────────────────────────────────────────────────
