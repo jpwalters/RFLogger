@@ -36,13 +36,14 @@ FrequencyListPanel::FrequencyListPanel(QWidget* parent)
     layout->addWidget(threshGroup);
 
     // Frequency table
-    m_table = new QTableWidget(0, 4);
-    m_table->setHorizontalHeaderLabels({tr("Frequency"), tr("Amplitude"), tr("Bandwidth"), tr("Listen")});
+    m_table = new QTableWidget(0, 5);
+    m_table->setHorizontalHeaderLabels({tr("Frequency"), tr("Amplitude"), tr("Bandwidth"), tr("Type"), tr("Listen")});
     m_table->horizontalHeader()->setStretchLastSection(false);
     m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_table->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -107,6 +108,7 @@ void FrequencyListPanel::onSweepReceived(const SweepData& sweep)
 void FrequencyListPanel::detectNow(const SweepData& sweep)
 {
     m_signals = m_detector.detect(sweep);
+    m_signals = m_classifier.groupByChannel(m_signals);
     updateTable();
 }
 
@@ -124,6 +126,13 @@ void FrequencyListPanel::onThresholdChanged(int value)
     // Re-detect with new threshold if we have data
     if (!m_lastSweep.isEmpty() && m_autoRefreshBox->isChecked())
         detectNow(m_lastSweep);
+}
+
+void FrequencyListPanel::setSignalClassifier(const SignalClassifier& classifier)
+{
+    m_classifier = classifier;
+    if (!m_signals.isEmpty())
+        updateTable();
 }
 
 void FrequencyListPanel::onListenClicked(int row)
@@ -153,8 +162,10 @@ void FrequencyListPanel::updateTable()
     for (int i = 0; i < static_cast<int>(m_signals.size()); ++i) {
         const auto& sig = m_signals[i];
 
-        auto* freqItem = new QTableWidgetItem(
-            QString("%1 MHz").arg(sig.centerFreqHz / 1e6, 0, 'f', 3));
+        QString freqText = sig.label.isEmpty()
+            ? QString("%1 MHz").arg(sig.centerFreqHz / 1e6, 0, 'f', 3)
+            : sig.label;
+        auto* freqItem = new QTableWidgetItem(freqText);
         freqItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_table->setItem(i, 0, freqItem);
 
@@ -168,6 +179,13 @@ void FrequencyListPanel::updateTable()
         bwItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_table->setItem(i, 2, bwItem);
 
+        // Signal classification hint
+        auto classification = m_classifier.classify(sig);
+        auto* typeItem = new QTableWidgetItem(classification.type);
+        typeItem->setToolTip(classification.description);
+        typeItem->setTextAlignment(Qt::AlignCenter);
+        m_table->setItem(i, 3, typeItem);
+
         auto* listenBtn = new QPushButton(i == m_listeningRow ? tr("■ Stop") : tr("▶ Listen"));
         listenBtn->setEnabled(m_demodAvailable);
         if (i == m_listeningRow) {
@@ -176,11 +194,11 @@ void FrequencyListPanel::updateTable()
         connect(listenBtn, &QPushButton::clicked, this, [this, i]() {
             onListenClicked(i);
         });
-        m_table->setCellWidget(i, 3, listenBtn);
+        m_table->setCellWidget(i, 4, listenBtn);
 
         // Highlight listening row
         QColor rowColor = (i == m_listeningRow) ? QColor(0, 80, 0) : QColor();
-        for (int col = 0; col < 3; ++col) {
+        for (int col = 0; col < 4; ++col) {
             if (auto* item = m_table->item(i, col)) {
                 if (rowColor.isValid())
                     item->setBackground(rowColor);

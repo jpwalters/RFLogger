@@ -2,6 +2,7 @@
 
 #include "data/DetectedSignal.h"
 #include "data/PeakDetector.h"
+#include "data/SignalClassifier.h"
 #include "data/SweepData.h"
 
 #include <QWidget>
@@ -26,6 +27,8 @@ public:
 
     bool autoRefresh() const;
     void setAutoRefresh(bool on);
+
+    void setSignalClassifier(const SignalClassifier& classifier);
 
 public slots:
     void onSweepReceived(const SweepData& sweep);
@@ -53,6 +56,7 @@ private:
     QPushButton* m_stopBtn;
 
     PeakDetector m_detector;
+    SignalClassifier m_classifier;
     QVector<DetectedSignal> m_signals;
     SweepData m_lastSweep;
     bool m_demodAvailable = false;

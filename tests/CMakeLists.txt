@@ -3,6 +3,9 @@ set(TEST_SOURCES
     tst_ScanSession.cpp
     tst_WwbExporter.cpp
     tst_GenericCsvExporter.cpp
+    tst_SessionSerializer.cpp
+    tst_SignalClassifier.cpp
+    tst_InterferenceMonitor.cpp
 )
 
 foreach(test_src ${TEST_SOURCES})
@@ -11,6 +14,11 @@ foreach(test_src ${TEST_SOURCES})
         ${test_src}
         ${CMAKE_SOURCE_DIR}/src/data/SweepData.cpp
         ${CMAKE_SOURCE_DIR}/src/data/ScanSession.cpp
+        ${CMAKE_SOURCE_DIR}/src/data/SessionSerializer.cpp
+        ${CMAKE_SOURCE_DIR}/src/data/TvChannelMap.cpp
+        ${CMAKE_SOURCE_DIR}/src/data/RfBandPlan.cpp
+        ${CMAKE_SOURCE_DIR}/src/data/SignalClassifier.cpp
+        ${CMAKE_SOURCE_DIR}/src/data/InterferenceMonitor.cpp
         ${CMAKE_SOURCE_DIR}/src/export/WwbExporter.cpp
         ${CMAKE_SOURCE_DIR}/src/export/GenericCsvExporter.cpp
     )
@@ -20,6 +28,7 @@ foreach(test_src ${TEST_SOURCES})
     )
     target_link_libraries(${test_name} PRIVATE
         Qt6::Core
+        Qt6::Gui
         Qt6::Test
     )
     add_test(NAME ${test_name} COMMAND ${test_name})

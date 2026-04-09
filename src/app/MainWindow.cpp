@@ -6,6 +6,10 @@
 #include "devices/ISpectrumDevice.h"
 #include "data/ScanSession.h"
 #include "data/TvChannelMap.h"
+#include "data/RfBandPlan.h"
+#include "data/SessionSerializer.h"
+#include "data/SignalClassifier.h"
+#include "data/InterferenceMonitor.h"
 #include "ui/SpectrumWidget.h"
 #include "ui/WaterfallWidget.h"
 #include "ui/DevicePanel.h"
@@ -31,6 +35,8 @@
 #include <QMessageBox>
 #include <QApplication>
 #include <QTimer>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <stdexcept>
 #include <cmath>
 
@@ -115,6 +121,27 @@ MainWindow::MainWindow(QWidget* parent)
 
     qApp->installEventFilter(this);
 
+    // Interference monitor
+    m_interferenceMonitor = new InterferenceMonitor(this);
+    connect(m_interferenceMonitor, &InterferenceMonitor::alertTriggered, this,
+            [this](const InterferenceAlert& alert) {
+                // Flash the alert indicator
+                m_alertIndicator->setText(QString("⚠ ALERT: %1").arg(alert.description));
+                m_alertIndicator->setVisible(true);
+                // Auto-hide after 5 seconds
+                QTimer::singleShot(5000, m_alertIndicator, [this]() {
+                    m_alertIndicator->setVisible(false);
+                });
+                statusBar()->showMessage(alert.description, 5000);
+            });
+
+    // Alert indicator in status bar
+    m_alertIndicator = new QLabel(this);
+    m_alertIndicator->setStyleSheet(
+        "QLabel { color: #ff4444; font-weight: bold; padding: 2px 8px; }");
+    m_alertIndicator->setVisible(false);
+    statusBar()->addPermanentWidget(m_alertIndicator);
+
     loadSettings();
 }
 
@@ -126,6 +153,17 @@ void MainWindow::createMenus()
 {
     // File menu
     auto* fileMenu = menuBar()->addMenu(tr("&File"));
+
+    fileMenu->addAction(tr("&Save Session..."), QKeySequence("Ctrl+S"), this, &MainWindow::onSaveSession);
+    fileMenu->addSeparator();
+
+    fileMenu->addAction(tr("Load &Reference Trace..."), QKeySequence("Ctrl+R"), this, &MainWindow::onLoadReferenceTrace);
+    m_clearReferenceAction = fileMenu->addAction(tr("Clear Reference Trace"), this, &MainWindow::onClearReferenceTrace);
+    m_clearReferenceAction->setEnabled(false);
+    fileMenu->addSeparator();
+
+    fileMenu->addAction(tr("&Import CSV Trace..."), QKeySequence("Ctrl+I"), this, &MainWindow::onImportCsvTrace);
+    fileMenu->addSeparator();
 
     auto* exportAction = fileMenu->addAction(tr("&Export Scan..."), QKeySequence("Ctrl+E"), this, &MainWindow::onExport);
     exportAction->setEnabled(true);
@@ -207,11 +245,70 @@ void MainWindow::createMenus()
         m_tvRegionGroup->addAction(action);
         connect(action, &QAction::triggered, this, [this, region]() {
             m_spectrumWidget->setTvChannelMap(TvChannelMap::forRegion(region));
+            updateSignalClassifier();
         });
     }
     // Default to first region
     if (!m_tvRegionGroup->actions().isEmpty())
         m_tvRegionGroup->actions().first()->setChecked(true);
+
+    // Band plan overlay
+    viewMenu->addSeparator();
+    m_showBandPlanAction = viewMenu->addAction(tr("Show &Band Plan"));
+    m_showBandPlanAction->setCheckable(true);
+    m_showBandPlanAction->setChecked(false);
+    connect(m_showBandPlanAction, &QAction::toggled, this, [this](bool checked) {
+        m_spectrumWidget->setShowBandPlan(checked);
+        m_bandPlanRegionMenu->setEnabled(checked);
+    });
+
+    m_bandPlanRegionMenu = viewMenu->addMenu(tr("Band Plan Re&gion"));
+    m_bandPlanRegionMenu->setEnabled(false);
+    m_bandPlanRegionGroup = new QActionGroup(this);
+    m_bandPlanRegionGroup->setExclusive(true);
+    for (const auto& region : RfBandPlan::availableRegions()) {
+        auto* action = m_bandPlanRegionMenu->addAction(region);
+        action->setCheckable(true);
+        m_bandPlanRegionGroup->addAction(action);
+        connect(action, &QAction::triggered, this, [this, region]() {
+            m_spectrumWidget->setBandPlanRegion(region);
+            updateSignalClassifier();
+        });
+    }
+    if (!m_bandPlanRegionGroup->actions().isEmpty())
+        m_bandPlanRegionGroup->actions().first()->setChecked(true);
+
+    // Reference trace
+    viewMenu->addSeparator();
+    m_showReferenceAction = viewMenu->addAction(tr("Show R&eference Trace"));
+    m_showReferenceAction->setCheckable(true);
+    m_showReferenceAction->setChecked(true);
+    m_showReferenceAction->setEnabled(false);
+    connect(m_showReferenceAction, &QAction::toggled, this, [this](bool checked) {
+        m_spectrumWidget->setShowReference(checked);
+    });
+
+    // Imported CSV traces
+    m_importedTracesMenu = viewMenu->addMenu(tr("&Imported Traces"));
+    m_importedTracesMenu->addAction(tr("(none)"))->setEnabled(false);
+
+    // Interference monitoring
+    viewMenu->addSeparator();
+    m_interferenceAlertAction = viewMenu->addAction(tr("Enable &Interference Alerts"));
+    m_interferenceAlertAction->setCheckable(true);
+    m_interferenceAlertAction->setChecked(false);
+    connect(m_interferenceAlertAction, &QAction::toggled, this, [this](bool checked) {
+        m_interferenceMonitor->setEnabled(checked);
+        if (checked && !m_interferenceMonitor->hasBaseline()) {
+            // Auto-set baseline from current max-hold if available
+            if (!m_session->isEmpty()) {
+                m_interferenceMonitor->setBaseline(m_session->maxHold());
+                statusBar()->showMessage(tr("Interference monitoring enabled — using current max-hold as baseline"), 3000);
+            } else {
+                statusBar()->showMessage(tr("Interference monitoring enabled — baseline will be set from first sweep data"), 3000);
+            }
+        }
+    });
 
     // Help menu
     auto* helpMenu = menuBar()->addMenu(tr("&Help"));
@@ -424,6 +521,9 @@ void MainWindow::onSweepReady(const SweepData& sweep)
 
     // Feed sweep to frequency list panel for peak detection
     m_frequencyListPanel->onSweepReceived(m_session->maxHold());
+
+    // Check for interference against baseline
+    m_interferenceMonitor->checkSweep(sweep);
 }
 
 void MainWindow::onExport()
@@ -505,6 +605,148 @@ void MainWindow::onCheckForUpdates()
 
     statusBar()->showMessage(tr("Checking for updates..."));
     m_updateChecker->checkForUpdates();
+}
+
+void MainWindow::onSaveSession()
+{
+    if (m_session->isEmpty()) {
+        QMessageBox::information(this, tr("Save Session"), tr("No scan data to save. Run a scan first."));
+        return;
+    }
+
+    QString filePath = QFileDialog::getSaveFileName(
+        this, tr("Save Session"), QString(), tr("RFLogger Session (*.rfl);;All Files (*)"));
+
+    if (filePath.isEmpty())
+        return;
+
+    if (!filePath.endsWith(".rfl", Qt::CaseInsensitive))
+        filePath += ".rfl";
+
+    if (SessionSerializer::save(filePath, *m_session))
+        statusBar()->showMessage(tr("Session saved to %1").arg(filePath), 3000);
+    else
+        QMessageBox::critical(this, tr("Save Session"), tr("Failed to save session file."));
+}
+
+void MainWindow::onLoadReferenceTrace()
+{
+    QString filePath = QFileDialog::getOpenFileName(
+        this, tr("Load Reference Trace"), QString(), tr("RFLogger Session (*.rfl);;All Files (*)"));
+
+    if (filePath.isEmpty())
+        return;
+
+    auto result = SessionSerializer::load(filePath);
+    if (!result.success) {
+        QMessageBox::critical(this, tr("Load Reference"),
+                              tr("Failed to load reference trace:\n%1").arg(result.errorMessage));
+        return;
+    }
+
+    QString label = result.deviceName.isEmpty()
+                        ? tr("Reference")
+                        : tr("Ref: %1").arg(result.deviceName);
+
+    m_spectrumWidget->setReferenceTrace(result.maxHold, label);
+    m_showReferenceAction->setEnabled(true);
+    m_showReferenceAction->setChecked(true);
+    m_clearReferenceAction->setEnabled(true);
+
+    // Use loaded reference as interference baseline if monitoring is enabled
+    m_interferenceMonitor->setBaseline(result.maxHold);
+
+    statusBar()->showMessage(
+        tr("Reference trace loaded: %1 (%2 sweeps)")
+            .arg(label).arg(result.sweepCount), 5000);
+}
+
+void MainWindow::onClearReferenceTrace()
+{
+    m_spectrumWidget->clearReferenceTrace();
+    m_showReferenceAction->setEnabled(false);
+    m_clearReferenceAction->setEnabled(false);
+    statusBar()->showMessage(tr("Reference trace cleared"), 3000);
+}
+
+void MainWindow::onImportCsvTrace()
+{
+    QStringList filePaths = QFileDialog::getOpenFileNames(
+        this, tr("Import CSV Traces"), QString(),
+        tr("CSV Files (*.csv);;All Files (*)"));
+
+    if (filePaths.isEmpty())
+        return;
+
+    int imported = 0;
+    for (const auto& filePath : filePaths) {
+        auto result = SessionSerializer::loadCsv(filePath);
+        if (!result.success) {
+            QMessageBox::warning(this, tr("Import CSV"),
+                                 tr("Failed to import %1:\n%2")
+                                     .arg(QFileInfo(filePath).fileName(), result.errorMessage));
+            continue;
+        }
+
+        QString name = QFileInfo(filePath).completeBaseName();
+        m_spectrumWidget->addImportedTrace(result.sweep, name);
+        ++imported;
+    }
+
+    if (imported > 0) {
+        rebuildImportedTracesMenu();
+        statusBar()->showMessage(
+            tr("Imported %1 CSV trace(s)").arg(imported), 3000);
+    }
+}
+
+void MainWindow::rebuildImportedTracesMenu()
+{
+    m_importedTracesMenu->clear();
+
+    const auto& traces = m_spectrumWidget->importedTraces();
+
+    if (traces.isEmpty()) {
+        m_importedTracesMenu->addAction(tr("(none)"))->setEnabled(false);
+        return;
+    }
+
+    for (const auto& trace : traces) {
+        auto* action = m_importedTracesMenu->addAction(trace.name);
+        action->setCheckable(true);
+        action->setChecked(trace.visible);
+        int traceId = trace.id;
+        connect(action, &QAction::toggled, this, [this, traceId](bool checked) {
+            m_spectrumWidget->setImportedTraceVisible(traceId, checked);
+        });
+    }
+
+    m_importedTracesMenu->addSeparator();
+
+    m_importedTracesMenu->addAction(tr("Remove All Imported Traces"), this, [this]() {
+        m_spectrumWidget->removeAllImportedTraces();
+        rebuildImportedTracesMenu();
+        statusBar()->showMessage(tr("All imported traces removed"), 3000);
+    });
+}
+
+void MainWindow::updateSignalClassifier()
+{
+    SignalClassifier classifier;
+
+    // Set TV channel map from current region
+    QString tvRegion = "US (ATSC)";
+    if (auto* checked = m_tvRegionGroup->checkedAction())
+        tvRegion = checked->text();
+    classifier.setTvChannelMap(TvChannelMap::forRegion(tvRegion));
+
+    // Set band plan from current region
+    QString bpRegion = "US";
+    if (auto* checked = m_bandPlanRegionGroup->checkedAction())
+        bpRegion = checked->text();
+    classifier.setBandPlan(RfBandPlan::forRegion(bpRegion));
+
+    m_frequencyListPanel->setSignalClassifier(classifier);
 }
 
 void MainWindow::updateDeviceLimits(ISpectrumDevice* device)
@@ -627,6 +869,10 @@ void MainWindow::saveSettings()
     SettingsManager::setValue("view/showTvBands", m_showTvBandsAction->isChecked());
     if (auto* checked = m_tvRegionGroup->checkedAction())
         SettingsManager::setValue("view/tvRegion", checked->text());
+    SettingsManager::setValue("view/showBandPlan", m_showBandPlanAction->isChecked());
+    if (auto* checked = m_bandPlanRegionGroup->checkedAction())
+        SettingsManager::setValue("view/bandPlanRegion", checked->text());
+    SettingsManager::setValue("view/interferenceAlerts", m_interferenceAlertAction->isChecked());
 }
 
 void MainWindow::loadSettings()
@@ -663,4 +909,24 @@ void MainWindow::loadSettings()
 
     bool showTvBands = SettingsManager::value("view/showTvBands", false).toBool();
     m_showTvBandsAction->setChecked(showTvBands);
+
+    // Band plan overlay
+    QString bpRegion = SettingsManager::value("view/bandPlanRegion", "US").toString();
+    for (auto* action : m_bandPlanRegionGroup->actions()) {
+        if (action->text() == bpRegion) {
+            action->setChecked(true);
+            break;
+        }
+    }
+    m_spectrumWidget->setBandPlanRegion(bpRegion);
+
+    bool showBandPlan = SettingsManager::value("view/showBandPlan", false).toBool();
+    m_showBandPlanAction->setChecked(showBandPlan);
+
+    // Interference alerts
+    bool alerts = SettingsManager::value("view/interferenceAlerts", false).toBool();
+    m_interferenceAlertAction->setChecked(alerts);
+
+    // Initialize signal classifier
+    updateSignalClassifier();
 }

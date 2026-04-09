@@ -20,6 +20,7 @@ class ExportPanel;
 class FrequencyListPanel;
 class ISpectrumDevice;
 class UpdateChecker;
+class InterferenceMonitor;
 
 class MainWindow : public QMainWindow
 {
@@ -43,6 +44,10 @@ private slots:
     void onExportFromPanel(const QString& format, const QString& dataSource, const QString& filePath);
     void onAbout();
     void onCheckForUpdates();
+    void onSaveSession();
+    void onLoadReferenceTrace();
+    void onClearReferenceTrace();
+    void onImportCsvTrace();
 
 private:
     void createMenus();
@@ -51,6 +56,8 @@ private:
     void loadSettings();
     void updateDeviceLimits(ISpectrumDevice* device);
     void toggleFullScreen();
+    void updateSignalClassifier();
+    void rebuildImportedTracesMenu();
 
     DeviceManager* m_deviceManager;
     ScanSession* m_session;
@@ -68,6 +75,7 @@ private:
     QDockWidget* m_markerDock = nullptr;
     QDockWidget* m_frequencyListDock = nullptr;
     UpdateChecker* m_updateChecker = nullptr;
+    InterferenceMonitor* m_interferenceMonitor = nullptr;
 
     // Full-screen mode
     bool m_fullScreen = false;
@@ -80,6 +88,22 @@ private:
     QAction* m_showTvBandsAction = nullptr;
     QMenu* m_tvRegionMenu = nullptr;
     QActionGroup* m_tvRegionGroup = nullptr;
+
+    // Band plan overlay
+    QAction* m_showBandPlanAction = nullptr;
+    QMenu* m_bandPlanRegionMenu = nullptr;
+    QActionGroup* m_bandPlanRegionGroup = nullptr;
+
+    // Reference trace
+    QAction* m_showReferenceAction = nullptr;
+    QAction* m_clearReferenceAction = nullptr;
+
+    // Imported CSV trace overlays
+    QMenu* m_importedTracesMenu = nullptr;
+
+    // Interference monitor
+    QAction* m_interferenceAlertAction = nullptr;
+    QLabel* m_alertIndicator = nullptr;
 
     // Quick-start: show a fast low-res first sweep before switching to full resolution
     bool m_quickStartPending = false;

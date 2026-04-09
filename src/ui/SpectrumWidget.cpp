@@ -81,7 +81,10 @@ void SpectrumWidget::setupPlot()
 
     // Refresh TV band overlay when the user pans or zooms
     connect(xAxis, QOverload<const QCPRange&>::of(&QCPAxis::rangeChanged),
-            this, [this]() { updateTvBandOverlay(); });
+            this, [this]() {
+                updateTvBandOverlay();
+                updateBandPlanOverlay();
+            });
 
     // Create graph layers
     m_liveGraph = addGraph();
@@ -95,6 +98,11 @@ void SpectrumWidget::setupPlot()
     m_averageGraph = addGraph();
     m_averageGraph->setPen(QPen(QColor(60, 140, 255), 1.2));
     m_averageGraph->setName("Average");
+
+    m_referenceGraph = addGraph();
+    m_referenceGraph->setPen(QPen(QColor(255, 180, 0, 160), 1.2, Qt::DashLine));
+    m_referenceGraph->setName("Reference");
+    m_referenceGraph->setVisible(false);
 
     // Legend
     legend->setVisible(true);
@@ -219,6 +227,7 @@ void SpectrumWidget::clearAll()
     m_liveGraph->data()->clear();
     m_maxHoldGraph->data()->clear();
     m_averageGraph->data()->clear();
+    // Note: reference trace is intentionally preserved across clears
     clearHighlight();
     clearTvHighlight();
     replot();
@@ -547,4 +556,194 @@ void SpectrumWidget::clearTvHighlight()
     }
     m_highlightedTvChannel = -1;
     replot();
+}
+
+// ── Reference Trace Overlay ─────────────────────────────────────────────────
+
+void SpectrumWidget::setReferenceTrace(const SweepData& sweep, const QString& /*label*/)
+{
+    m_referenceData = sweep;
+
+    if (sweep.isEmpty()) {
+        m_referenceGraph->data()->clear();
+        m_referenceGraph->setVisible(false);
+        replot();
+        return;
+    }
+
+    QVector<double> freqs(sweep.count());
+    for (int i = 0; i < sweep.count(); ++i)
+        freqs[i] = sweep.frequencyAtIndex(i) / 1'000'000.0;
+
+    m_referenceGraph->setData(freqs, sweep.amplitudes());
+    m_referenceGraph->setVisible(true);
+    replot(QCustomPlot::rpQueuedReplot);
+}
+
+void SpectrumWidget::clearReferenceTrace()
+{
+    m_referenceData = SweepData();
+    m_referenceGraph->data()->clear();
+    m_referenceGraph->setVisible(false);
+    replot();
+}
+
+void SpectrumWidget::setShowReference(bool show)
+{
+    m_referenceGraph->setVisible(show && !m_referenceData.isEmpty());
+    replot();
+}
+
+// ── Band Plan Overlay ────────────────────────────────────────────────────────
+
+void SpectrumWidget::setShowBandPlan(bool show)
+{
+    m_showBandPlan = show;
+    if (!show) {
+        clearBandPlanItems();
+        replot();
+    } else {
+        updateBandPlanOverlay();
+    }
+}
+
+void SpectrumWidget::setBandPlanRegion(const QString& region)
+{
+    m_bandPlan = RfBandPlan::forRegion(region);
+    updateBandPlanOverlay();
+}
+
+void SpectrumWidget::updateBandPlanOverlay()
+{
+    clearBandPlanItems();
+
+    if (!m_showBandPlan) {
+        replot(QCustomPlot::rpQueuedReplot);
+        return;
+    }
+
+    double startHz = xAxis->range().lower * 1'000'000.0;
+    double stopHz  = xAxis->range().upper * 1'000'000.0;
+    auto visible = m_bandPlan.bandsInRange(startHz, stopHz);
+
+    QCPLayer* bandLayer = layer("tvbands"); // Reuse the same layer
+
+    for (const auto& band : visible) {
+        double startMHz = band.startFreqHz / 1'000'000.0;
+        double stopMHz  = band.stopFreqHz  / 1'000'000.0;
+
+        QColor fillColor(band.color.red(), band.color.green(), band.color.blue(), 25);
+        QColor borderColor(band.color.red(), band.color.green(), band.color.blue(), 50);
+
+        auto* rect = new QCPItemRect(this);
+        rect->setLayer(bandLayer);
+        rect->topLeft->setCoords(startMHz, 200);
+        rect->bottomRight->setCoords(stopMHz, -200);
+        rect->setPen(QPen(borderColor, 1));
+        rect->setBrush(QBrush(fillColor));
+        m_bandPlanRects.append(rect);
+
+        // Show label only if band is wide enough on screen
+        double pixelWidth = xAxis->coordToPixel(stopMHz) - xAxis->coordToPixel(startMHz);
+        if (pixelWidth >= 40) {
+            auto* label = new QCPItemText(this);
+            label->setLayer(bandLayer);
+            label->setPositionAlignment(Qt::AlignBottom | Qt::AlignHCenter);
+            label->position->setCoords((startMHz + stopMHz) / 2.0, yAxis->range().lower + 2);
+            label->setText(band.name);
+            label->setColor(QColor(band.color.red(), band.color.green(), band.color.blue(), 160));
+            label->setFont(QFont(font().family(), 7));
+            label->setPadding(QMargins(1, 0, 1, 0));
+            m_bandPlanLabels.append(label);
+        }
+    }
+
+    replot(QCustomPlot::rpQueuedReplot);
+}
+
+void SpectrumWidget::clearBandPlanItems()
+{
+    for (auto* rect : m_bandPlanRects)
+        removeItem(rect);
+    for (auto* label : m_bandPlanLabels)
+        removeItem(label);
+    m_bandPlanRects.clear();
+    m_bandPlanLabels.clear();
+}
+
+// ── Imported CSV Trace Overlays ──────────────────────────────────────────────
+
+QColor SpectrumWidget::traceColor(int index)
+{
+    static const QColor palette[] = {
+        QColor(0, 200, 200),      // cyan
+        QColor(200, 100, 255),    // purple
+        QColor(255, 160, 50),     // orange
+        QColor(100, 255, 100),    // lime
+        QColor(255, 100, 180),    // pink
+        QColor(180, 180, 50),     // olive
+        QColor(100, 180, 255),    // sky
+        QColor(255, 255, 100),    // yellow
+    };
+    constexpr int N = sizeof(palette) / sizeof(palette[0]);
+    return palette[index % N];
+}
+
+int SpectrumWidget::addImportedTrace(const SweepData& sweep, const QString& name)
+{
+    if (sweep.isEmpty())
+        return -1;
+
+    ImportedTrace trace;
+    trace.id = m_nextTraceId++;
+    trace.name = name;
+    trace.sweep = sweep;
+
+    QColor color = traceColor(m_importedTraces.size());
+
+    trace.graph = addGraph();
+    trace.graph->setPen(QPen(color, 1.4, Qt::DashDotLine));
+    trace.graph->setName(name);
+    trace.graph->setVisible(true);
+
+    QVector<double> freqs(sweep.count());
+    for (int i = 0; i < sweep.count(); ++i)
+        freqs[i] = sweep.frequencyAtIndex(i) / 1'000'000.0;
+    trace.graph->setData(freqs, sweep.amplitudes());
+
+    m_importedTraces.append(trace);
+    replot(QCustomPlot::rpQueuedReplot);
+    return trace.id;
+}
+
+void SpectrumWidget::removeImportedTrace(int id)
+{
+    for (int i = 0; i < m_importedTraces.size(); ++i) {
+        if (m_importedTraces[i].id == id) {
+            removeGraph(m_importedTraces[i].graph);
+            m_importedTraces.removeAt(i);
+            replot(QCustomPlot::rpQueuedReplot);
+            return;
+        }
+    }
+}
+
+void SpectrumWidget::removeAllImportedTraces()
+{
+    for (auto& trace : m_importedTraces)
+        removeGraph(trace.graph);
+    m_importedTraces.clear();
+    replot(QCustomPlot::rpQueuedReplot);
+}
+
+void SpectrumWidget::setImportedTraceVisible(int id, bool visible)
+{
+    for (auto& trace : m_importedTraces) {
+        if (trace.id == id) {
+            trace.visible = visible;
+            trace.graph->setVisible(visible);
+            replot(QCustomPlot::rpQueuedReplot);
+            return;
+        }
+    }
 }

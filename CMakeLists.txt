@@ -116,6 +116,14 @@ set(RFLOGGER_SOURCES
     src/data/PeakDetector.cpp
     src/data/TvChannelMap.h
     src/data/TvChannelMap.cpp
+    src/data/RfBandPlan.h
+    src/data/RfBandPlan.cpp
+    src/data/SignalClassifier.h
+    src/data/SignalClassifier.cpp
+    src/data/SessionSerializer.h
+    src/data/SessionSerializer.cpp
+    src/data/InterferenceMonitor.h
+    src/data/InterferenceMonitor.cpp
     src/devices/ISpectrumDevice.h
     src/devices/DeviceManager.h
     src/devices/DeviceManager.cpp
