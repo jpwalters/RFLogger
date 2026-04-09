@@ -43,6 +43,7 @@ private slots:
 
 private:
     static constexpr int BAUD_RATE = 500000;
+    static constexpr double AMPLITUDE_DIVISOR = -2.0;  // dBm = raw_byte / -2.0
     static constexpr int MIN_SWEEP_POINTS_BASIC = 112;
     static constexpr int MAX_SWEEP_POINTS_BASIC = 4096;
     static constexpr int MIN_SWEEP_POINTS_PLUS = 112;

@@ -42,6 +42,12 @@ private:
 
     static constexpr int BAUD_RATE = 115200;
 
+    // Amplitude decoding constants (TinySA binary protocol)
+    static constexpr int BYTES_PER_POINT = 3;
+    static constexpr double AMPLITUDE_SCALE = 32.0;
+    static constexpr double AMPLITUDE_OFFSET_BASIC = 128.0;
+    static constexpr double AMPLITUDE_OFFSET_ULTRA = 174.0;
+
     // Basic ranges
     static constexpr double MIN_FREQ_BASIC_LOW  =    100000.0;
     static constexpr double MAX_FREQ_BASIC_LOW  = 350000000.0;
@@ -58,7 +64,7 @@ private:
     void processVersionResponse(const QStringList& lines);
     void processSweepConfigResponse(const QStringList& lines);
     void processScanData(const QByteArray& rawData);
-    QVector<double> parseScanAmplitudes(const char* data, int count) const;
+    QVector<double> parseScanAmplitudes(const char* data, int dataSize, int count) const;
     void requestVersion();
     void requestSweepConfig();
     void startScanRaw();

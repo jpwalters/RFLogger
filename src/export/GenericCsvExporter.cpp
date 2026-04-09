@@ -2,6 +2,7 @@
 
 #include <QFile>
 #include <QDateTime>
+#include <QStringConverter>
 #include <QTextStream>
 
 bool GenericCsvExporter::exportToFile(const QString& filePath, const SweepData& sweep,
@@ -12,6 +13,7 @@ bool GenericCsvExporter::exportToFile(const QString& filePath, const SweepData& 
         return false;
 
     QTextStream out(&file);
+    out.setEncoding(QStringConverter::Utf8);
 
     // Metadata comments
     out << "# RFLogger Export\n";
@@ -35,5 +37,10 @@ bool GenericCsvExporter::exportToFile(const QString& filePath, const SweepData& 
         out << QString::number(freqMhz, 'f', 6) << ',' << QString::number(ampDbm, 'f', 1) << '\n';
     }
 
-    return true;
+    out.flush();
+    if (file.error() != QFileDevice::NoError)
+        return false;
+
+    file.close();
+    return file.error() == QFileDevice::NoError;
 }

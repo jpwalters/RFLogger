@@ -21,8 +21,9 @@ public:
     SweepData maxHold() const;
     SweepData average() const;
 
-    int sweepCount() const { return static_cast<int>(m_sweeps.size()); }
-    bool isEmpty() const { return m_sweeps.isEmpty(); }
+    int sweepCount() const { return m_totalSweepCount; }
+    int storedSweepCount() const { return static_cast<int>(m_sweeps.size()); }
+    bool isEmpty() const { return m_totalSweepCount == 0; }
 
     const QVector<SweepData>& sweeps() const { return m_sweeps; }
 
@@ -39,7 +40,15 @@ signals:
     void sessionCleared();
 
 private:
+    // Maximum number of sweeps retained in memory.  Older sweeps are evicted
+    // once this limit is reached.  Accumulators (max-hold, average) continue
+    // to reflect all sweeps ever added to the session.
+    static constexpr int MAX_STORED_SWEEPS = 10000;
+
     QVector<SweepData> m_sweeps;
+    int m_totalSweepCount = 0;
+    double m_refStartFreqHz = 0.0;
+    double m_refStepSizeHz = 0.0;
     QString m_deviceName;
     QDateTime m_startTime;
     QDateTime m_stopTime;

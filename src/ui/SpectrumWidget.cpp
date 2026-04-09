@@ -71,10 +71,17 @@ void SpectrumWidget::setupPlot()
 
     setMouseTracking(true);
 
+    // Create a layer for TV band rectangles behind the graph data
+    addLayer("tvbands", layer("grid"), QCustomPlot::limAbove);
+
     // Enable zoom and pan
     setInteractions(QCP::iRangeDrag | QCP::iRangeZoom);
     axisRect()->setRangeDrag(Qt::Horizontal | Qt::Vertical);
     axisRect()->setRangeZoom(Qt::Horizontal | Qt::Vertical);
+
+    // Refresh TV band overlay when the user pans or zooms
+    connect(xAxis, QOverload<const QCPRange&>::of(&QCPAxis::rangeChanged),
+            this, [this]() { updateTvBandOverlay(); });
 
     // Create graph layers
     m_liveGraph = addGraph();
@@ -213,6 +220,7 @@ void SpectrumWidget::clearAll()
     m_maxHoldGraph->data()->clear();
     m_averageGraph->data()->clear();
     clearHighlight();
+    clearTvHighlight();
     replot();
 }
 
@@ -372,5 +380,171 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* event)
         emit frequencyClicked(freqMHz * 1'000'000.0);
     }
 
+    // Left-click: select a TV channel band (when overlay is visible)
+    if (event->button() == Qt::LeftButton && m_showTvBands) {
+        double freqMHz = xAxis->pixelToCoord(event->pos().x());
+        double freqHz = freqMHz * 1'000'000.0;
+        const TvChannel* ch = m_tvChannelMap.channelAtFrequency(freqHz);
+        if (ch)
+            emit tvChannelClicked(ch->number);
+        else
+            clearTvHighlight();
+    }
+
     QCustomPlot::mousePressEvent(event);
+}
+
+// ── TV Channel Band Overlay ──────────────────────────────────────────────────
+
+void SpectrumWidget::setTvChannelMap(const TvChannelMap& map)
+{
+    m_tvChannelMap = map;
+    m_highlightedTvChannel = -1;
+    updateTvBandOverlay();
+}
+
+void SpectrumWidget::setShowTvBands(bool show)
+{
+    m_showTvBands = show;
+    if (!show) {
+        clearTvBandItems();
+        clearTvHighlight();
+        replot();
+    } else {
+        updateTvBandOverlay();
+    }
+}
+
+void SpectrumWidget::updateTvBandOverlay()
+{
+    clearTvBandItems();
+
+    if (!m_showTvBands) {
+        replot(QCustomPlot::rpQueuedReplot);
+        return;
+    }
+
+    double startHz = xAxis->range().lower * 1'000'000.0;
+    double stopHz  = xAxis->range().upper * 1'000'000.0;
+    auto visible = m_tvChannelMap.channelsInRange(startHz, stopHz);
+
+    QCPLayer* bandLayer = layer("tvbands");
+
+    for (const auto& ch : visible) {
+        double startMHz = ch.startFreqHz / 1'000'000.0;
+        double stopMHz  = ch.stopFreqHz  / 1'000'000.0;
+
+        QColor baseColor = TvChannelMap::bandGroupColor(ch.bandGroup);
+
+        // Alternate even/odd channels for visual distinction
+        int alpha = (ch.number % 2 == 0) ? 25 : 35;
+        QColor fillColor(baseColor.red(), baseColor.green(), baseColor.blue(), alpha);
+        QColor borderColor(baseColor.red(), baseColor.green(), baseColor.blue(), 60);
+
+        auto* rect = new QCPItemRect(this);
+        rect->setLayer(bandLayer);
+        rect->topLeft->setCoords(startMHz, 200);
+        rect->bottomRight->setCoords(stopMHz, -200);
+        rect->setPen(QPen(borderColor, 1));
+        rect->setBrush(QBrush(fillColor));
+        m_tvBandRects.append(rect);
+
+        // Channel number label at top of the band
+        // Only show label if the channel is wide enough on screen
+        double pixelWidth = xAxis->coordToPixel(stopMHz) - xAxis->coordToPixel(startMHz);
+        if (pixelWidth >= 20) {
+            auto* label = new QCPItemText(this);
+            label->setLayer(bandLayer);
+            label->setPositionAlignment(Qt::AlignTop | Qt::AlignHCenter);
+            label->position->setCoords((startMHz + stopMHz) / 2.0, yAxis->range().upper - 1);
+            label->setText(QString::number(ch.number));
+            label->setColor(QColor(baseColor.red(), baseColor.green(), baseColor.blue(), 140));
+            label->setFont(QFont(font().family(), 7));
+            label->setPadding(QMargins(1, 0, 1, 0));
+            m_tvBandLabels.append(label);
+        }
+    }
+
+    // Re-create highlight if one was active
+    if (m_highlightedTvChannel >= 0)
+        highlightTvChannel(m_highlightedTvChannel);
+
+    replot(QCustomPlot::rpQueuedReplot);
+}
+
+void SpectrumWidget::clearTvBandItems()
+{
+    for (auto* rect : m_tvBandRects)
+        removeItem(rect);
+    for (auto* label : m_tvBandLabels)
+        removeItem(label);
+    m_tvBandRects.clear();
+    m_tvBandLabels.clear();
+}
+
+void SpectrumWidget::highlightTvChannel(int channelNumber)
+{
+    // Remove previous highlight items (but keep the tracked channel number)
+    if (m_tvHighlightRect) {
+        removeItem(m_tvHighlightRect);
+        m_tvHighlightRect = nullptr;
+    }
+    if (m_tvHighlightLabel) {
+        removeItem(m_tvHighlightLabel);
+        m_tvHighlightLabel = nullptr;
+    }
+
+    // Find the channel
+    const TvChannel* ch = nullptr;
+    for (const auto& c : m_tvChannelMap.channels()) {
+        if (c.number == channelNumber) {
+            ch = &c;
+            break;
+        }
+    }
+    if (!ch) {
+        m_highlightedTvChannel = -1;
+        replot();
+        return;
+    }
+
+    m_highlightedTvChannel = channelNumber;
+
+    double startMHz = ch->startFreqHz / 1'000'000.0;
+    double stopMHz  = ch->stopFreqHz  / 1'000'000.0;
+    QColor baseColor = TvChannelMap::bandGroupColor(ch->bandGroup);
+
+    m_tvHighlightRect = new QCPItemRect(this);
+    m_tvHighlightRect->topLeft->setCoords(startMHz, 200);
+    m_tvHighlightRect->bottomRight->setCoords(stopMHz, -200);
+    m_tvHighlightRect->setPen(QPen(QColor(baseColor.red(), baseColor.green(), baseColor.blue(), 180), 2));
+    m_tvHighlightRect->setBrush(QBrush(QColor(baseColor.red(), baseColor.green(), baseColor.blue(), 70)));
+
+    m_tvHighlightLabel = new QCPItemText(this);
+    m_tvHighlightLabel->setPositionAlignment(Qt::AlignTop | Qt::AlignHCenter);
+    m_tvHighlightLabel->position->setCoords((startMHz + stopMHz) / 2.0, yAxis->range().upper - 4);
+    m_tvHighlightLabel->setText(QString("Ch %1\n%2\u2013%3 MHz")
+                                    .arg(ch->number)
+                                    .arg(startMHz, 0, 'f', 0)
+                                    .arg(stopMHz, 0, 'f', 0));
+    m_tvHighlightLabel->setColor(QColor(255, 255, 255));
+    m_tvHighlightLabel->setFont(QFont(font().family(), 9, QFont::Bold));
+    m_tvHighlightLabel->setPadding(QMargins(4, 2, 4, 2));
+    m_tvHighlightLabel->setBrush(QBrush(QColor(baseColor.red(), baseColor.green(), baseColor.blue(), 180)));
+
+    replot();
+}
+
+void SpectrumWidget::clearTvHighlight()
+{
+    if (m_tvHighlightRect) {
+        removeItem(m_tvHighlightRect);
+        m_tvHighlightRect = nullptr;
+    }
+    if (m_tvHighlightLabel) {
+        removeItem(m_tvHighlightLabel);
+        m_tvHighlightLabel = nullptr;
+    }
+    m_highlightedTvChannel = -1;
+    replot();
 }

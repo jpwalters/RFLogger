@@ -7,6 +7,8 @@
 
 class QTimer;
 class QLabel;
+class QActionGroup;
+class QMenu;
 class DeviceManager;
 class ScanSession;
 class SpectrumWidget;
@@ -73,6 +75,11 @@ private:
     QMap<QDockWidget*, bool> m_dockVisibilityBeforeFullScreen;
     QTimer* m_cursorHideTimer = nullptr;
     QLabel* m_fullScreenHint = nullptr;
+
+    // TV channel overlay
+    QAction* m_showTvBandsAction = nullptr;
+    QMenu* m_tvRegionMenu = nullptr;
+    QActionGroup* m_tvRegionGroup = nullptr;
 
     // Quick-start: show a fast low-res first sweep before switching to full resolution
     bool m_quickStartPending = false;

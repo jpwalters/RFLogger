@@ -1,10 +1,20 @@
 #include "TinySADevice.h"
 
 #include <QDebug>
+#include <QEventLoop>
 #include <QThread>
 #include <QTimer>
 #include <algorithm>
 #include <cmath>
+
+// Non-blocking wait: processes events for the given duration instead of
+// freezing the UI thread with QThread::msleep().
+static void nonBlockingWait(int ms)
+{
+    QEventLoop loop;
+    QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+    loop.exec();
+}
 
 // TinySA API: https://tinysa.org/wiki/pmwiki.php?n=Main.USBInterface
 // Protocol reference: berkon/wireless-microphone-analyzer scan_devices/tiny_sa.js
@@ -159,13 +169,13 @@ bool TinySADevice::configure(double startFreqHz, double stopFreqHz, int sweepPoi
             if (m_freqMode != FreqMode::Low) {
                 m_freqMode = FreqMode::Low;
                 sendTextCommand("mode low input");
-                QThread::msleep(100);
+                nonBlockingWait(100);
             }
         } else if (startFreqHz >= MIN_FREQ_BASIC_HIGH && stopFreqHz <= MAX_FREQ_BASIC_HIGH) {
             if (m_freqMode != FreqMode::High) {
                 m_freqMode = FreqMode::High;
                 sendTextCommand("mode high input");
-                QThread::msleep(100);
+                nonBlockingWait(100);
             }
         } else {
             emit errorOccurred(tr("Frequency range crosses TinySA Basic mode boundary"));
@@ -174,9 +184,9 @@ bool TinySADevice::configure(double startFreqHz, double stopFreqHz, int sweepPoi
     }
 
     sendTextCommand(QString("sweep start %1").arg(static_cast<qint64>(startFreqHz)));
-    QThread::msleep(50);
+    nonBlockingWait(50);
     sendTextCommand(QString("sweep stop %1").arg(static_cast<qint64>(stopFreqHz)));
-    QThread::msleep(50);
+    nonBlockingWait(50);
 
     m_startFreqHz = startFreqHz;
     m_stopFreqHz = stopFreqHz;
@@ -330,17 +340,32 @@ void TinySADevice::processSweepConfigResponse(const QStringList& lines)
     }
 }
 
-QVector<double> TinySADevice::parseScanAmplitudes(const char* data, int count) const
+QVector<double> TinySADevice::parseScanAmplitudes(const char* data, int dataSize, int count) const
 {
+    const int requiredBytes = count * BYTES_PER_POINT;
+    if (requiredBytes > dataSize) {
+        // Figure out how many complete points we can actually parse
+        int safeCount = dataSize / BYTES_PER_POINT;
+        if (safeCount <= 0) {
+            qWarning() << "TinySA: scan data too short — need" << requiredBytes
+                       << "bytes, have" << dataSize;
+            return {};
+        }
+        qWarning() << "TinySA: truncated scan data — expected" << count
+                   << "points (" << requiredBytes << "bytes), have" << dataSize
+                   << "bytes; parsing" << safeCount << "points";
+        count = safeCount;
+    }
+
     QVector<double> amplitudes(count);
-    double offsetVal = (m_model == Model::Basic) ? 128.0 : 174.0;
+    double offsetVal = (m_model == Model::Basic) ? AMPLITUDE_OFFSET_BASIC : AMPLITUDE_OFFSET_ULTRA;
 
     for (int i = 0; i < count; ++i) {
-        int offset = i * 3 + 1; // Skip first padding byte per triplet
+        int offset = i * BYTES_PER_POINT + 1; // Skip first padding byte per triplet
         unsigned char lo = static_cast<unsigned char>(data[offset]);
         unsigned char hi = static_cast<unsigned char>(data[offset + 1]);
         int rawVal = lo + (hi * 256);
-        amplitudes[i] = -((static_cast<double>(rawVal) / 32.0) - offsetVal);
+        amplitudes[i] = -((static_cast<double>(rawVal) / AMPLITUDE_SCALE) - offsetVal);
     }
 
     return amplitudes;
@@ -369,7 +394,7 @@ void TinySADevice::processIncrementalScan()
             ? (m_stopFreqHz - m_startFreqHz) / (m_sweepPoints - 1) : 0.0;
 
         QVector<double> amplitudes = parseScanAmplitudes(
-            m_buffer.constData() + m_scanDataOffset, availablePoints);
+            m_buffer.constData() + m_scanDataOffset, availableBytes, availablePoints);
 
         int pct = static_cast<int>(availablePoints * 100 / m_sweepPoints);
         emit sweepProgress(std::min(pct, 99));
@@ -397,7 +422,7 @@ void TinySADevice::processIncrementalScan()
         ? (m_stopFreqHz - m_startFreqHz) / (m_sweepPoints - 1) : 0.0;
 
     QVector<double> amplitudes = parseScanAmplitudes(
-        m_buffer.constData() + m_scanDataOffset, m_sweepPoints);
+        m_buffer.constData() + m_scanDataOffset, availableBytes, m_sweepPoints);
 
     // Consume processed data from buffer
     m_buffer.remove(0, promptIdx + delimiter.size());
@@ -440,7 +465,7 @@ void TinySADevice::processScanData(const QByteArray& rawData)
     }
 
     double freqStep = (m_sweepPoints > 1) ? (m_stopFreqHz - m_startFreqHz) / (m_sweepPoints - 1) : 0.0;
-    QVector<double> amplitudes = parseScanAmplitudes(scanBytes.constData(), m_sweepPoints);
+    QVector<double> amplitudes = parseScanAmplitudes(scanBytes.constData(), scanBytes.size(), m_sweepPoints);
 
     SweepData sweep(m_startFreqHz, freqStep, amplitudes);
     emit sweepProgress(100);

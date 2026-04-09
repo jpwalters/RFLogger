@@ -1,5 +1,7 @@
 #include <QTest>
 #include <QSignalSpy>
+#include <cmath>
+#include <limits>
 #include "data/ScanSession.h"
 
 class tst_ScanSession : public QObject
@@ -206,6 +208,86 @@ private slots:
 
         auto avg = session.average();
         QVERIFY(qAbs(avg.amplitudes()[0] - (-34.767)) < 0.01);
+    }
+
+    // --- Edge-case tests ---
+
+    void emptySweepIsAccepted()
+    {
+        // Adding an empty sweep (0 points) should not crash
+        ScanSession session;
+        SweepData empty(470e6, 1e6, {});
+        session.addSweep(empty);
+        QCOMPARE(session.sweepCount(), 1);
+        // Max-hold and average should return something valid (empty amplitudes)
+        auto mh = session.maxHold();
+        QCOMPARE(mh.count(), 0);
+        auto avg = session.average();
+        QCOMPARE(avg.count(), 0);
+    }
+
+    void pointCountChangeResetsAccumulators()
+    {
+        ScanSession session;
+
+        // Add two sweeps with 3 points
+        session.addSweep(SweepData(470e6, 1e6, {-80.0, -75.0, -90.0}));
+        session.addSweep(SweepData(470e6, 1e6, {-70.0, -85.0, -60.0}));
+        QCOMPARE(session.sweepCount(), 2);
+
+        auto mh1 = session.maxHold();
+        QCOMPARE(mh1.count(), 3);
+        QCOMPARE(mh1.amplitudes()[0], -70.0);
+
+        // Now add a sweep with 2 points — should reset accumulators
+        session.addSweep(SweepData(480e6, 2e6, {-50.0, -40.0}));
+        // sweepCount resets because accumulators were reset
+        QCOMPARE(session.sweepCount(), 1);
+
+        auto mh2 = session.maxHold();
+        QCOMPARE(mh2.count(), 2);
+        QCOMPARE(mh2.amplitudes()[0], -50.0);
+        QCOMPARE(mh2.amplitudes()[1], -40.0);
+
+        // Reference frequency should reflect the new sweep
+        QCOMPARE(mh2.startFreqHz(), 480e6);
+        QCOMPARE(mh2.stepSizeHz(), 2e6);
+    }
+
+    void storedSweepCountVsTotalSweepCount()
+    {
+        ScanSession session;
+
+        // storedSweepCount should equal sweepCount when under the limit
+        session.addSweep(SweepData(470e6, 1e6, {-80.0}));
+        session.addSweep(SweepData(470e6, 1e6, {-75.0}));
+        QCOMPARE(session.sweepCount(), 2);
+        QCOMPARE(session.storedSweepCount(), 2);
+    }
+
+    void averageUsesTotalCountNotStoredCount()
+    {
+        // Verify that average() uses total sweep count for the divisor,
+        // not just the number of stored sweeps
+        ScanSession session;
+        session.addSweep(SweepData(470e6, 1e6, {-30.0}));
+        session.addSweep(SweepData(470e6, 1e6, {-30.0}));
+
+        // Both identical: average should still be -30.0
+        auto avg = session.average();
+        QVERIFY(qAbs(avg.amplitudes()[0] - (-30.0)) < 0.01);
+    }
+
+    void clearResetsStoredAndTotalCounts()
+    {
+        ScanSession session;
+        session.addSweep(SweepData(470e6, 1e6, {-80.0}));
+        session.addSweep(SweepData(470e6, 1e6, {-75.0}));
+
+        session.clear();
+        QCOMPARE(session.sweepCount(), 0);
+        QCOMPARE(session.storedSweepCount(), 0);
+        QVERIFY(session.isEmpty());
     }
 };
 

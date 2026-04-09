@@ -1,6 +1,7 @@
 #include "WwbExporter.h"
 
 #include <QFile>
+#include <QStringConverter>
 #include <QTextStream>
 
 bool WwbExporter::exportToFile(const QString& filePath, const SweepData& sweep)
@@ -10,8 +11,15 @@ bool WwbExporter::exportToFile(const QString& filePath, const SweepData& sweep)
         return false;
 
     QTextStream out(&file);
+    out.setEncoding(QStringConverter::Utf8);
     out << formatSweep(sweep);
-    return true;
+    out.flush();
+
+    if (file.error() != QFileDevice::NoError)
+        return false;
+
+    file.close();
+    return file.error() == QFileDevice::NoError;
 }
 
 QString WwbExporter::formatSweep(const SweepData& sweep)

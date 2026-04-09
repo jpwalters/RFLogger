@@ -1,6 +1,8 @@
 #include <QTest>
 #include <QTemporaryFile>
 #include <QTextStream>
+#include <cmath>
+#include <limits>
 #include "data/SweepData.h"
 #include "export/WwbExporter.h"
 
@@ -70,6 +72,31 @@ private slots:
     {
         SweepData s(470e6, 1e6, {-80.0});
         QVERIFY(!WwbExporter::exportToFile("Z:/nonexistent/path/file.csv", s));
+    }
+
+    void formatSweepWithNaNAmplitude()
+    {
+        double nan = std::numeric_limits<double>::quiet_NaN();
+        SweepData s(470e6, 1e6, {-80.0, nan, -60.0});
+
+        QString csv = WwbExporter::formatSweep(s);
+        QStringList lines = csv.split('\n', Qt::SkipEmptyParts);
+        QCOMPARE(lines.size(), 3);
+        // NaN should be formatted as "nan" — verify no crash
+        QVERIFY(!lines[1].isEmpty());
+    }
+
+    void formatSweepWithInfAmplitude()
+    {
+        double inf = std::numeric_limits<double>::infinity();
+        SweepData s(470e6, 1e6, {-inf, -80.0, inf});
+
+        QString csv = WwbExporter::formatSweep(s);
+        QStringList lines = csv.split('\n', Qt::SkipEmptyParts);
+        QCOMPARE(lines.size(), 3);
+        // Verify no crash with infinite values
+        QVERIFY(!lines[0].isEmpty());
+        QVERIFY(!lines[2].isEmpty());
     }
 };
 

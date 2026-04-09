@@ -34,9 +34,7 @@ void SettingsManager::saveWindowGeometry(QWidget* window)
 void SettingsManager::loadWindowGeometry(QWidget* window)
 {
     QByteArray geometry = settings().value("window/geometry").toByteArray();
-    if (!geometry.isEmpty())
-        window->restoreGeometry(geometry);
-    else
+    if (geometry.isEmpty() || !window->restoreGeometry(geometry))
         window->resize(1280, 800);
 
     if (auto* mw = qobject_cast<QMainWindow*>(window)) {

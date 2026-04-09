@@ -57,7 +57,7 @@ void ExportPanel::onExport()
     if (folder.isEmpty() || !QDir(folder).exists())
         folder = QDir::homePath();
 
-    QString defaultName = QDateTime::currentDateTime().toString("yyyy-MM-dd-HH-mm") + ".csv";
+    QString defaultName = "RFLogger-" + QDateTime::currentDateTime().toString("yyyy-MM-dd-HH-mm") + ".csv";
     QString defaultPath = QDir(folder).filePath(defaultName);
 
     QString filter = tr("CSV Files (*.csv);;All Files (*)");

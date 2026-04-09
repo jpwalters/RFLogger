@@ -13,13 +13,24 @@ void ScanSession::addSweep(const SweepData& sweep)
 {
     const int count = sweep.count();
 
-    // Initialize or update accumulators
+    // Initialize or reset accumulators when sweep point count changes
     if (m_maxHoldAmplitudes.size() != count) {
+        if (m_totalSweepCount > 0)
+            qDebug() << "ScanSession: sweep point count changed from"
+                     << m_maxHoldAmplitudes.size() << "to" << count
+                     << "\u2014 resetting accumulators";
         m_maxHoldAmplitudes.resize(count);
         m_sumAmplitudes.resize(count);
         std::fill(m_maxHoldAmplitudes.begin(), m_maxHoldAmplitudes.end(),
                   -std::numeric_limits<double>::infinity());
         std::fill(m_sumAmplitudes.begin(), m_sumAmplitudes.end(), 0.0);
+        m_totalSweepCount = 0;
+    }
+
+    // Store reference frequency from the first sweep (or after reset)
+    if (m_totalSweepCount == 0) {
+        m_refStartFreqHz = sweep.startFreqHz();
+        m_refStepSizeHz = sweep.stepSizeHz();
     }
 
     const auto& amps = sweep.amplitudes();
@@ -31,6 +42,12 @@ void ScanSession::addSweep(const SweepData& sweep)
     }
 
     m_sweeps.append(sweep);
+    ++m_totalSweepCount;
+
+    // Evict oldest sweeps to bound memory usage
+    if (m_sweeps.size() > MAX_STORED_SWEEPS)
+        m_sweeps.removeFirst();
+
     emit sweepAdded(sweep);
 }
 
@@ -39,6 +56,9 @@ void ScanSession::clear()
     m_sweeps.clear();
     m_maxHoldAmplitudes.clear();
     m_sumAmplitudes.clear();
+    m_totalSweepCount = 0;
+    m_refStartFreqHz = 0.0;
+    m_refStepSizeHz = 0.0;
     m_startTime = QDateTime();
     m_stopTime = QDateTime();
     emit sessionCleared();
@@ -54,25 +74,22 @@ const SweepData& ScanSession::latestSweep() const
 
 SweepData ScanSession::maxHold() const
 {
-    if (m_sweeps.isEmpty())
+    if (m_totalSweepCount == 0)
         return {};
 
-    const auto& ref = m_sweeps.first();
-    return SweepData(ref.startFreqHz(), ref.stepSizeHz(), m_maxHoldAmplitudes);
+    return SweepData(m_refStartFreqHz, m_refStepSizeHz, m_maxHoldAmplitudes);
 }
 
 SweepData ScanSession::average() const
 {
-    if (m_sweeps.isEmpty())
+    if (m_totalSweepCount == 0)
         return {};
 
-    const int n = static_cast<int>(m_sweeps.size());
     QVector<double> avgAmps(m_sumAmplitudes.size());
     for (int i = 0; i < static_cast<int>(avgAmps.size()); ++i) {
         // Convert mean linear power back to dBm
-        avgAmps[i] = 10.0 * std::log10(m_sumAmplitudes[i] / n);
+        avgAmps[i] = 10.0 * std::log10(m_sumAmplitudes[i] / m_totalSweepCount);
     }
 
-    const auto& ref = m_sweeps.first();
-    return SweepData(ref.startFreqHz(), ref.stepSizeHz(), avgAmps);
+    return SweepData(m_refStartFreqHz, m_refStepSizeHz, avgAmps);
 }

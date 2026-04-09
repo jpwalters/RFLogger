@@ -1,6 +1,8 @@
 #include <QTest>
 #include <QTemporaryFile>
 #include <QTextStream>
+#include <cmath>
+#include <limits>
 #include "data/SweepData.h"
 #include "export/GenericCsvExporter.h"
 
@@ -150,6 +152,42 @@ private slots:
     {
         SweepData s(470e6, 1e6, {-80.0});
         QVERIFY(!GenericCsvExporter::exportToFile("Z:/nonexistent/path/file.csv", s));
+    }
+
+    void exportWithNaNAmplitude()
+    {
+        double nan = std::numeric_limits<double>::quiet_NaN();
+        SweepData s(470e6, 1e6, {-80.0, nan, -60.0});
+
+        QTemporaryFile file;
+        file.setAutoRemove(true);
+        QVERIFY(file.open());
+        QString path = file.fileName();
+        file.close();
+
+        // Should not crash, should still produce a file
+        QVERIFY(GenericCsvExporter::exportToFile(path, s));
+
+        QFile readBack(path);
+        QVERIFY(readBack.open(QIODevice::ReadOnly));
+        QString content = readBack.readAll();
+        QVERIFY(content.contains("470.000000,-80.0"));
+        QVERIFY(content.contains("472.000000,-60.0"));
+    }
+
+    void exportWithInfAmplitude()
+    {
+        double inf = std::numeric_limits<double>::infinity();
+        SweepData s(470e6, 1e6, {-inf, -80.0});
+
+        QTemporaryFile file;
+        file.setAutoRemove(true);
+        QVERIFY(file.open());
+        QString path = file.fileName();
+        file.close();
+
+        // Should not crash
+        QVERIFY(GenericCsvExporter::exportToFile(path, s));
     }
 };
 

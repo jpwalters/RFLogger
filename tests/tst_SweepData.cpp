@@ -1,5 +1,6 @@
 #include <QTest>
 #include <cmath>
+#include <limits>
 #include "data/SweepData.h"
 
 class tst_SweepData : public QObject
@@ -105,6 +106,63 @@ private slots:
         QVector<double> amps = {-80.0, -75.0, -90.0};
         SweepData s(470e6, 1e6, amps);
         QCOMPARE(s.amplitudes(), amps);
+    }
+
+    // --- Edge-case tests ---
+
+    void zeroStepSizeStopFreq()
+    {
+        // A single-point sweep with step size 0 should not break
+        SweepData s(470e6, 0.0, {-80.0});
+        QCOMPARE(s.count(), 1);
+        QCOMPARE(s.stopFreqHz(), 470e6);  // start + 0 * 0 = start
+        QCOMPARE(s.frequencyAtIndex(0), 470e6);
+    }
+
+    void nanAmplitudeValues()
+    {
+        double nan = std::numeric_limits<double>::quiet_NaN();
+        SweepData s(470e6, 1e6, {nan, -80.0, nan});
+        QCOMPARE(s.count(), 3);
+        QVERIFY(std::isnan(s.amplitudeAt(0)));
+        QCOMPARE(s.amplitudeAt(1), -80.0);
+        QVERIFY(std::isnan(s.amplitudeAt(2)));
+        // min/max with NaN: std::min_element/max_element treat NaN as less-than
+        // Verify it doesn't crash
+        (void)s.minAmplitude();
+        (void)s.maxAmplitude();
+    }
+
+    void infiniteAmplitudeValues()
+    {
+        double inf = std::numeric_limits<double>::infinity();
+        SweepData s(470e6, 1e6, {-inf, -80.0, inf});
+        QCOMPARE(s.count(), 3);
+        QCOMPARE(s.amplitudeAt(0), -inf);
+        QCOMPARE(s.amplitudeAt(2), inf);
+        QCOMPARE(s.minAmplitude(), -inf);
+        QCOMPARE(s.maxAmplitude(), inf);
+    }
+
+    void veryHighFrequency()
+    {
+        // 6 GHz (TinySA Ultra max)
+        SweepData s(6e9, 1e6, {-80.0, -75.0});
+        QCOMPARE(s.startFreqHz(), 6e9);
+        QCOMPARE(s.stopFreqHz(), 6e9 + 1e6);
+        QCOMPARE(s.frequencyAtIndex(1), 6e9 + 1e6);
+    }
+
+    void zeroCountSweep()
+    {
+        // Empty amplitude vector, non-zero frequency params
+        SweepData s(470e6, 1e6, {});
+        QVERIFY(s.isEmpty());
+        QCOMPARE(s.count(), 0);
+        QCOMPARE(s.stopFreqHz(), 470e6);  // empty → startFreq
+        QVERIFY(std::isnan(s.amplitudeAt(0)));
+        QVERIFY(std::isnan(s.minAmplitude()));
+        QVERIFY(std::isnan(s.maxAmplitude()));
     }
 };
 

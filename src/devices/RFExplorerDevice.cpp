@@ -462,12 +462,28 @@ void RFExplorerDevice::processConfigData(const QByteArray& data)
         return;
     }
 
-    double startFreqKhz = parts[0].toDouble();
-    double freqStepHz = parts[1].toDouble();
-    int sweepPoints = parts[4].toInt();
-    double minFreqKhz = parts[7].toDouble();
-    double maxFreqKhz = parts[8].toDouble();
-    double maxSpanKhz = parts[9].toDouble();
+    bool ok = false;
+
+    double startFreqKhz = parts[0].toDouble(&ok);
+    if (!ok) { qWarning() << "RF Explorer: invalid startFreqKhz:" << parts[0]; return; }
+
+    double freqStepHz = parts[1].toDouble(&ok);
+    if (!ok) { qWarning() << "RF Explorer: invalid freqStepHz:" << parts[1]; return; }
+
+    int sweepPoints = parts[4].toInt(&ok);
+    if (!ok || sweepPoints <= 0) {
+        qWarning() << "RF Explorer: invalid sweepPoints:" << parts[4];
+        return;
+    }
+
+    double minFreqKhz = parts[7].toDouble(&ok);
+    if (!ok) { qWarning() << "RF Explorer: invalid minFreqKhz:" << parts[7]; return; }
+
+    double maxFreqKhz = parts[8].toDouble(&ok);
+    if (!ok) { qWarning() << "RF Explorer: invalid maxFreqKhz:" << parts[8]; return; }
+
+    double maxSpanKhz = parts[9].toDouble(&ok);
+    if (!ok) { qWarning() << "RF Explorer: invalid maxSpanKhz:" << parts[9]; return; }
 
     m_startFreqHz = startFreqKhz * 1000.0;
     m_freqStepHz = freqStepHz;
@@ -504,7 +520,7 @@ void RFExplorerDevice::processScanData(const QByteArray& data, int sweepPoints)
         // Each byte is an amplitude value: dBm = byte_value / -2.0
         // So 0 = 0 dBm, 1 = -0.5 dBm, 240 = -120 dBm
         unsigned char raw = static_cast<unsigned char>(data[i]);
-        amplitudes[i] = static_cast<double>(raw) / -2.0;
+        amplitudes[i] = static_cast<double>(raw) / AMPLITUDE_DIVISOR;
     }
 
     // If the device delivers exactly the requested point count in one message,

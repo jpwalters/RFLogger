@@ -52,6 +52,11 @@ void UpdateChecker::onReplyFinished(QNetworkReply* reply)
         return;
     }
 
+    if (releaseUrl.isEmpty()) {
+        emit checkFailed(tr("No release URL found in response."));
+        return;
+    }
+
     // Strip leading 'v' if present
     if (tagName.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
         tagName = tagName.mid(1);

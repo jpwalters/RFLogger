@@ -5,6 +5,7 @@
 #include "devices/DeviceManager.h"
 #include "devices/ISpectrumDevice.h"
 #include "data/ScanSession.h"
+#include "data/TvChannelMap.h"
 #include "ui/SpectrumWidget.h"
 #include "ui/WaterfallWidget.h"
 #include "ui/DevicePanel.h"
@@ -21,6 +22,7 @@
 #include <QMenuBar>
 #include <QMenu>
 #include <QAction>
+#include <QActionGroup>
 #include <QStatusBar>
 #include <QLabel>
 #include <QCloseEvent>
@@ -66,6 +68,10 @@ MainWindow::MainWindow(QWidget* parent)
 
     connect(m_markerPanel, &MarkerPanel::markersChanged, m_spectrumWidget, &SpectrumWidget::setMarkers);
     connect(m_spectrumWidget, &SpectrumWidget::frequencyClicked, m_markerPanel, &MarkerPanel::addMarkerAtFrequency);
+
+    // TV channel click → highlight
+    connect(m_spectrumWidget, &SpectrumWidget::tvChannelClicked,
+            m_spectrumWidget, &SpectrumWidget::highlightTvChannel);
 
     connect(m_deviceManager, &DeviceManager::deviceConnected, this, [this](ISpectrumDevice* device) {
         updateDeviceLimits(device);
@@ -180,6 +186,32 @@ void MainWindow::createMenus()
         m_captureControls->setShowAverage(checked);
         m_spectrumWidget->setShowAverage(checked);
     });
+
+    // TV channel band overlay
+    viewMenu->addSeparator();
+    m_showTvBandsAction = viewMenu->addAction(tr("Show &TV Channels"));
+    m_showTvBandsAction->setCheckable(true);
+    m_showTvBandsAction->setChecked(false);
+    connect(m_showTvBandsAction, &QAction::toggled, this, [this](bool checked) {
+        m_spectrumWidget->setShowTvBands(checked);
+        m_tvRegionMenu->setEnabled(checked);
+    });
+
+    m_tvRegionMenu = viewMenu->addMenu(tr("TV &Region"));
+    m_tvRegionMenu->setEnabled(false);
+    m_tvRegionGroup = new QActionGroup(this);
+    m_tvRegionGroup->setExclusive(true);
+    for (const auto& region : TvChannelMap::availableRegions()) {
+        auto* action = m_tvRegionMenu->addAction(region);
+        action->setCheckable(true);
+        m_tvRegionGroup->addAction(action);
+        connect(action, &QAction::triggered, this, [this, region]() {
+            m_spectrumWidget->setTvChannelMap(TvChannelMap::forRegion(region));
+        });
+    }
+    // Default to first region
+    if (!m_tvRegionGroup->actions().isEmpty())
+        m_tvRegionGroup->actions().first()->setChecked(true);
 
     // Help menu
     auto* helpMenu = menuBar()->addMenu(tr("&Help"));
@@ -361,8 +393,11 @@ void MainWindow::onSweepReady(const SweepData& sweep)
             auto* device = m_deviceManager->currentDevice();
             if (device && device->isScanning()) {
                 device->stopScanning();
-                device->configure(m_fullResStartHz, m_fullResStopHz, m_fullResPoints);
-                device->startScanning();
+                if (!device->configure(m_fullResStartHz, m_fullResStopHz, m_fullResPoints) ||
+                    !device->startScanning()) {
+                    statusBar()->showMessage(
+                        tr("Failed to reconfigure for full resolution scan"), 5000);
+                }
             }
         });
         return;
@@ -589,6 +624,9 @@ void MainWindow::saveSettings()
     SettingsManager::setValue("view/frequencyListVisible", m_frequencyListDock->isVisible());
     SettingsManager::setValue("peakDetection/thresholdDb", m_frequencyListPanel->thresholdDb());
     SettingsManager::setValue("peakDetection/autoRefresh", m_frequencyListPanel->autoRefresh());
+    SettingsManager::setValue("view/showTvBands", m_showTvBandsAction->isChecked());
+    if (auto* checked = m_tvRegionGroup->checkedAction())
+        SettingsManager::setValue("view/tvRegion", checked->text());
 }
 
 void MainWindow::loadSettings()
@@ -612,4 +650,17 @@ void MainWindow::loadSettings()
 
     bool autoRefresh = SettingsManager::value("peakDetection/autoRefresh", true).toBool();
     m_frequencyListPanel->setAutoRefresh(autoRefresh);
+
+    // TV channel overlay
+    QString tvRegion = SettingsManager::value("view/tvRegion", "US (ATSC)").toString();
+    for (auto* action : m_tvRegionGroup->actions()) {
+        if (action->text() == tvRegion) {
+            action->setChecked(true);
+            break;
+        }
+    }
+    m_spectrumWidget->setTvChannelMap(TvChannelMap::forRegion(tvRegion));
+
+    bool showTvBands = SettingsManager::value("view/showTvBands", false).toBool();
+    m_showTvBandsAction->setChecked(showTvBands);
 }

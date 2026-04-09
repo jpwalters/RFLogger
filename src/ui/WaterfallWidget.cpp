@@ -64,6 +64,10 @@ void WaterfallWidget::setTimeDepth(int rows)
 
 QColor WaterfallWidget::amplitudeToColor(double dbm) const
 {
+    // Guard against NaN/Inf — return black
+    if (std::isnan(dbm) || std::isinf(dbm))
+        return QColor(0, 0, 0);
+
     // Normalize to 0..1
     double t = (dbm - m_minDbm) / (m_maxDbm - m_minDbm);
     t = std::clamp(t, 0.0, 1.0);

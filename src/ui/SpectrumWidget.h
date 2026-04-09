@@ -2,6 +2,7 @@
 
 #include "data/SweepData.h"
 #include "data/FrequencyMarker.h"
+#include "data/TvChannelMap.h"
 
 #include <qcustomplot.h>
 #include <QVector>
@@ -31,8 +32,14 @@ public:
     void clearAll();
     void setCrosshairVisible(bool visible);
 
+    void setTvChannelMap(const TvChannelMap& map);
+    void setShowTvBands(bool show);
+    void highlightTvChannel(int channelNumber);
+    void clearTvHighlight();
+
 signals:
     void frequencyClicked(double freqHz);
+    void tvChannelClicked(int channelNumber);
 
 protected:
     void mousePressEvent(QMouseEvent* event) override;
@@ -42,6 +49,8 @@ protected:
 private:
     void setupPlot();
     void updateMarkerLines();
+    void updateTvBandOverlay();
+    void clearTvBandItems();
 
     QCPItemText* m_coordLabel = nullptr;
     QCPItemLine* m_vCrosshair = nullptr;
@@ -56,6 +65,15 @@ private:
 
     QCPItemStraightLine* m_highlightLine = nullptr;
     QCPItemText* m_highlightLabel = nullptr;
+
+    // TV channel band overlay
+    QVector<QCPItemRect*> m_tvBandRects;
+    QVector<QCPItemText*> m_tvBandLabels;
+    QCPItemRect* m_tvHighlightRect = nullptr;
+    QCPItemText* m_tvHighlightLabel = nullptr;
+    TvChannelMap m_tvChannelMap;
+    bool m_showTvBands = false;
+    int m_highlightedTvChannel = -1;
 
     bool m_crosshairEnabled = true;
 };
