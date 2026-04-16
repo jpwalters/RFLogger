@@ -93,7 +93,16 @@ void DeviceManager::refreshPorts()
 
     // If not connected and no auto-connect pending, keep showing waiting status
     if (!isConnected() && !m_autoConnectTimer->isActive() && m_lastPorts.isEmpty()) {
-        emit statusChanged(tr("Waiting for device..."));
+#ifdef RFLOGGER_HAS_RTLSDR
+        // Check if an RTL-SDR device is present but has no driver
+        const QString driverMsg = RtlSdrDevice::checkDriverStatus();
+        if (!driverMsg.isEmpty()) {
+            emit statusChanged(driverMsg);
+        } else
+#endif
+        {
+            emit statusChanged(tr("Waiting for device..."));
+        }
     }
 }
 

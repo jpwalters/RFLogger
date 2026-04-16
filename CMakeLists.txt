@@ -83,15 +83,61 @@ if(TARGET kissfft)
     )
 endif()
 
-# ── External: RTL-SDR (optional) ──────────────────────────────────────────────
+# ── External: RTL-SDR (optional, bundled via FetchContent) ────────────────────
 if(RFLOGGER_ENABLE_RTLSDR)
-    list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
-    find_package(RtlSdr QUIET)
-    if(RTLSDR_FOUND)
-        message(STATUS "RTL-SDR found: ${RTLSDR_INCLUDE_DIRS}")
-    else()
-        message(STATUS "RTL-SDR not found — RTL-SDR device support disabled")
+    # libusb (required by librtlsdr)
+    FetchContent_Declare(
+        libusb
+        GIT_REPOSITORY https://github.com/libusb/libusb-cmake.git
+        GIT_TAG        v1.0.27
+        GIT_SHALLOW    TRUE
+    )
+    set(LIBUSB_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(LIBUSB_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    set(LIBUSB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(libusb)
+
+    # librtlsdr — fetch source only, we build our own static library target
+    # because the upstream CMakeLists.txt uses CMAKE_SOURCE_DIR and pkg-config
+    # which break under FetchContent embedding.
+    FetchContent_Declare(
+        librtlsdr
+        GIT_REPOSITORY https://github.com/osmocom/rtl-sdr.git
+        GIT_TAG        v2.0.2
+        GIT_SHALLOW    TRUE
+        SOURCE_SUBDIR  _disabled   # skip upstream CMakeLists.txt
+    )
+    FetchContent_MakeAvailable(librtlsdr)
+
+    # Build rtlsdr as a static library from fetched sources
+    add_library(rtlsdr STATIC
+        ${librtlsdr_SOURCE_DIR}/src/librtlsdr.c
+        ${librtlsdr_SOURCE_DIR}/src/tuner_e4k.c
+        ${librtlsdr_SOURCE_DIR}/src/tuner_fc0012.c
+        ${librtlsdr_SOURCE_DIR}/src/tuner_fc0013.c
+        ${librtlsdr_SOURCE_DIR}/src/tuner_fc2580.c
+        ${librtlsdr_SOURCE_DIR}/src/tuner_r82xx.c
+    )
+    target_include_directories(rtlsdr
+        PUBLIC ${librtlsdr_SOURCE_DIR}/include
+        PRIVATE ${librtlsdr_SOURCE_DIR}/src
+    )
+    target_compile_definitions(rtlsdr PUBLIC rtlsdr_STATIC)
+    target_link_libraries(rtlsdr PRIVATE usb-1.0)
+
+    # Suppress warnings from third-party code
+    target_compile_options(rtlsdr PRIVATE
+        $<$<C_COMPILER_ID:Clang,AppleClang,GNU>:-w>
+        $<$<C_COMPILER_ID:MSVC>:/W0>
+    )
+    if(TARGET usb-1.0)
+        target_compile_options(usb-1.0 PRIVATE
+            $<$<C_COMPILER_ID:Clang,AppleClang,GNU>:-w>
+            $<$<C_COMPILER_ID:MSVC>:/W0>
+        )
     endif()
+
+    message(STATUS "RTL-SDR support enabled (bundled via FetchContent)")
 endif()
 
 # ── Version header ────────────────────────────────────────────────────────────
@@ -170,11 +216,13 @@ if(WIN32)
     )
 endif()
 
-# RTL-SDR device only if library found
-if(RTLSDR_FOUND)
+# RTL-SDR device + FFT module (bundled library)
+if(RFLOGGER_ENABLE_RTLSDR)
     list(APPEND RFLOGGER_SOURCES
         src/devices/RtlSdrDevice.h
         src/devices/RtlSdrDevice.cpp
+        src/devices/RtlSdrFft.h
+        src/devices/RtlSdrFft.cpp
     )
 endif()
 
@@ -208,10 +256,12 @@ target_link_libraries(RFLogger PRIVATE
     kissfft::kissfft
 )
 
-if(RTLSDR_FOUND)
+if(RFLOGGER_ENABLE_RTLSDR)
     target_compile_definitions(RFLogger PRIVATE RFLOGGER_HAS_RTLSDR)
-    target_include_directories(RFLogger PRIVATE ${RTLSDR_INCLUDE_DIRS})
-    target_link_libraries(RFLogger PRIVATE ${RTLSDR_LIBRARIES})
+    target_link_libraries(RFLogger PRIVATE rtlsdr)
+    if(WIN32)
+        target_link_libraries(RFLogger PRIVATE setupapi)
+    endif()
 endif()
 
 option(RFLOGGER_DEBUG_MENU "Show Debug menu with crash-test actions" OFF)

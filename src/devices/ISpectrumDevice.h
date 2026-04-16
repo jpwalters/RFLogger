@@ -4,6 +4,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVector>
 
 class ISpectrumDevice : public QObject
 {
@@ -35,6 +36,12 @@ public:
     virtual QString modelName() const { return deviceName(); }
     virtual bool supportsDemodulation() const { return false; }
 
+    // Gain control (optional — override in devices that support it)
+    virtual bool supportsGainControl() const { return false; }
+    virtual QVector<int> availableGains() const { return {}; }
+    virtual int currentGain() const { return 0; }
+    virtual bool setGain(int tenthsDb) { Q_UNUSED(tenthsDb); return false; }
+
 signals:
     void sweepReady(const SweepData& sweep);
     void partialSweepReady(const SweepData& sweep);
@@ -42,4 +49,5 @@ signals:
     void connectionChanged(bool connected);
     void errorOccurred(const QString& message);
     void deviceInfoUpdated();
+    void gainChanged(int tenthsDb);
 };
