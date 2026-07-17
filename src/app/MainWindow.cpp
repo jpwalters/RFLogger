@@ -439,10 +439,8 @@ void MainWindow::onStartScan(double startHz, double stopHz, int points)
     // Connect sweep signals
     connect(device, &ISpectrumDevice::sweepReady, this, &MainWindow::onSweepReady,
             Qt::UniqueConnection);
-    connect(device, &ISpectrumDevice::partialSweepReady, this, [this](const SweepData& sweep) {
-        if (m_captureControls->showLive())
-            m_spectrumWidget->updateLive(sweep);
-    }, Qt::UniqueConnection);
+        connect(device, &ISpectrumDevice::partialSweepReady, this, &MainWindow::onPartialSweepReady,
+            Qt::UniqueConnection);
     connect(device, &ISpectrumDevice::sweepProgress, m_captureControls, &CaptureControls::onSweepProgress,
             Qt::UniqueConnection);
 
@@ -524,6 +522,12 @@ void MainWindow::onSweepReady(const SweepData& sweep)
 
     // Check for interference against baseline
     m_interferenceMonitor->checkSweep(sweep);
+}
+
+void MainWindow::onPartialSweepReady(const SweepData& sweep)
+{
+    if (m_captureControls->showLive())
+        m_spectrumWidget->updateLive(sweep);
 }
 
 void MainWindow::onExport()

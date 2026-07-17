@@ -31,5 +31,17 @@ foreach(test_src ${TEST_SOURCES})
         Qt6::Gui
         Qt6::Test
     )
+
+    if(WIN32)
+        # Ensure Qt test runtime DLLs are available when CTest launches binaries directly.
+        add_custom_command(TARGET ${test_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt6::Core>
+                $<TARGET_FILE:Qt6::Gui>
+                $<TARGET_FILE:Qt6::Test>
+                $<TARGET_FILE_DIR:${test_name}>
+        )
+    endif()
+
     add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()

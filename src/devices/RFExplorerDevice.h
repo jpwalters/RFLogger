@@ -40,6 +40,7 @@ public:
 
 private slots:
     void onDataReady();
+    void processDeferredBuffer();
 
 private:
     static constexpr int BAUD_RATE = 500000;
@@ -50,7 +51,7 @@ private:
     static constexpr int MAX_SWEEP_POINTS_PLUS = 4096;
 
     void sendCommand(const QByteArray& cmd);
-    void processBuffer();
+    void processBuffer(bool isDeferred = false);
     void processConfigData(const QByteArray& data);
     void processScanData(const QByteArray& data, int sweepPoints);
     void processModelData(const QByteArray& data);
@@ -64,6 +65,7 @@ private:
     bool m_disconnecting = false;
     bool m_configReceived = false;
     bool m_isPlusModel = false;
+    bool m_processBufferScheduled = false;
 
     // Device reported config
     double m_startFreqHz = 0.0;

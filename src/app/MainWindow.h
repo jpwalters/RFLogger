@@ -40,6 +40,7 @@ private slots:
     void onStartScan(double startHz, double stopHz, int points);
     void onStopScan();
     void onSweepReady(const SweepData& sweep);
+    void onPartialSweepReady(const SweepData& sweep);
     void onExport();
     void onExportFromPanel(const QString& format, const QString& dataSource, const QString& filePath);
     void onAbout();

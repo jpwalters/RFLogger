@@ -319,7 +319,21 @@ void RFExplorerDevice::onDataReady()
         return;
 
     m_buffer.append(m_serial->readAll());
-    processBuffer();
+    
+    // Defer buffer processing to avoid blocking the event loop with large amounts of incoming data.
+    // This allows the UI to remain responsive during active scanning.
+    if (!m_processBufferScheduled) {
+        m_processBufferScheduled = true;
+        QTimer::singleShot(0, this, &RFExplorerDevice::processDeferredBuffer);
+    }
+}
+
+void RFExplorerDevice::processDeferredBuffer()
+{
+    m_processBufferScheduled = false;
+    
+    // Process available data. If more arrives while processing, schedule another round.
+    processBuffer(true);
 }
 
 void RFExplorerDevice::stripEosSequences(QByteArray& buffer)
@@ -335,11 +349,16 @@ void RFExplorerDevice::stripEosSequences(QByteArray& buffer)
     }
 }
 
-void RFExplorerDevice::processBuffer()
+void RFExplorerDevice::processBuffer(bool isDeferred)
 {
     stripEosSequences(m_buffer);
 
-    while (true) {
+    // Limit messages processed per call to avoid blocking the event loop.
+    // If more messages remain, schedule deferred processing to allow UI updates.
+    static const int MESSAGES_PER_BATCH = 50;
+    int messagesProcessed = 0;
+
+    while (messagesProcessed < MESSAGES_PER_BATCH) {
         // Look for message delimiters: \r\n terminated messages
         // Messages starting with '#' are config/info, '$' are scan data
 
@@ -370,6 +389,7 @@ void RFExplorerDevice::processBuffer()
             QByteArray configData = m_buffer.mid(6, endIdx - 6);
             m_buffer.remove(0, endIdx + 2);
             processConfigData(configData);
+            ++messagesProcessed;
         }
         else if (m_buffer.startsWith("#C2-M:")) {
             // MODEL_DATA — terminated by \r\n
@@ -379,6 +399,7 @@ void RFExplorerDevice::processBuffer()
             QByteArray modelData = m_buffer.mid(6, endIdx - 6);
             m_buffer.remove(0, endIdx + 2);
             processModelData(modelData);
+            ++messagesProcessed;
         }
         else if (m_buffer.startsWith("#Sn")) {
             // SERIAL_NUMBER — terminated by \r\n
@@ -389,6 +410,7 @@ void RFExplorerDevice::processBuffer()
             m_buffer.remove(0, endIdx + 2);
             qDebug() << "RF Explorer serial:" << m_serialNumber;
             emit deviceInfoUpdated();
+            ++messagesProcessed;
         }
         else if (m_buffer.startsWith("$S")) {
             // SCAN_DATA (standard) — $S + 1 byte count + <count> amplitude bytes + \r\n
@@ -402,6 +424,7 @@ void RFExplorerDevice::processBuffer()
             m_buffer.remove(0, totalLen);
             if (m_configReceived && m_scanning)
                 processScanData(scanData, sweepPoints);
+            ++messagesProcessed;
         }
         else if (m_buffer.startsWith("$s")) {
             // SCAN_DATA_EXT (high-res) — $s + 1 byte encoded count + <decoded_count> amplitude bytes + \r\n
@@ -417,6 +440,7 @@ void RFExplorerDevice::processBuffer()
             m_buffer.remove(0, totalLen);
             if (m_configReceived && m_scanning)
                 processScanData(scanData, sweepPoints);
+            ++messagesProcessed;
         }
         else if (m_buffer.startsWith("$z")) {
             // SCAN_DATA_LARGE (PLUS) — $z + 2 bytes MSB/LSB count + <count> amplitude bytes + \r\n
@@ -432,6 +456,7 @@ void RFExplorerDevice::processBuffer()
             m_buffer.remove(0, totalLen);
             if (m_configReceived && m_scanning)
                 processScanData(scanData, sweepPoints);
+            ++messagesProcessed;
         }
         else if (m_buffer.startsWith("#")) {
             // Other # messages — find \r\n and skip
@@ -441,6 +466,7 @@ void RFExplorerDevice::processBuffer()
             QByteArray msg = m_buffer.mid(0, endIdx);
             m_buffer.remove(0, endIdx + 2);
             qDebug() << "RF Explorer msg:" << msg.toHex(' ');
+            ++messagesProcessed;
         }
         else {
             // Unknown data starting with $ but not $S or $z
@@ -450,6 +476,13 @@ void RFExplorerDevice::processBuffer()
                 break;
             m_buffer.remove(0, endIdx + 2);
         }
+    }
+
+    // If we hit the message limit and still have data to process,
+    // schedule deferred processing to keep the event loop responsive.
+    if (messagesProcessed >= MESSAGES_PER_BATCH && !m_buffer.isEmpty() && !m_processBufferScheduled) {
+        m_processBufferScheduled = true;
+        QTimer::singleShot(0, this, &RFExplorerDevice::processDeferredBuffer);
     }
 }
 
@@ -545,23 +578,17 @@ void RFExplorerDevice::processScanData(const QByteArray& data, int sweepPoints)
     emit sweepProgress(std::min(pct, 99));
 
     // Emit partial sweep so the UI can graph data as it arrives
-    double partialStepHz = (static_cast<int>(m_accumBuffer.size()) > 1)
-        ? (m_desiredStopHz - m_desiredStartHz) / (m_accumTarget - 1)
-        : m_accumStepHz;
-    SweepData partial(m_desiredStartHz, partialStepHz, m_accumBuffer);
+    // Use actual configured frequency range (m_accumStartHz, m_accumStepHz) not desired range
+    SweepData partial(m_accumStartHz, m_accumStepHz, m_accumBuffer);
     emit partialSweepReady(partial);
 
     if (static_cast<int>(m_accumBuffer.size()) >= m_accumTarget) {
         // Trim to exact target in case the device overshot slightly
         m_accumBuffer.resize(m_accumTarget);
 
-        // Recalculate step size for the full accumulated range
-        double fullStepHz = (m_accumTarget > 1)
-            ? (m_desiredStopHz - m_desiredStartHz) / (m_accumTarget - 1)
-            : 0.0;
-
+        // Use actual configured frequency range for final sweep
         emit sweepProgress(100);
-        SweepData sweep(m_desiredStartHz, fullStepHz, m_accumBuffer);
+        SweepData sweep(m_accumStartHz, m_accumStepHz, m_accumBuffer);
         emit sweepReady(sweep);
         m_accumBuffer.clear();
     }

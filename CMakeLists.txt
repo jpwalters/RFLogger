@@ -21,6 +21,10 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(MSVC)
+    add_compile_options(/FS)
+endif()
+
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
@@ -30,6 +34,18 @@ option(RFLOGGER_ENABLE_RTLSDR "Enable RTL-SDR device support" ON)
 
 if(APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
+endif()
+
+if(WIN32 AND NOT Qt6_DIR)
+    file(GLOB _qt_msvc_kits LIST_DIRECTORIES true "C:/Qt/*/msvc2022_64")
+    if(_qt_msvc_kits)
+        list(SORT _qt_msvc_kits COMPARE NATURAL ORDER DESCENDING)
+        list(GET _qt_msvc_kits 0 _qt_latest_msvc_kit)
+        if(EXISTS "${_qt_latest_msvc_kit}/lib/cmake/Qt6/Qt6Config.cmake")
+            list(PREPEND CMAKE_PREFIX_PATH "${_qt_latest_msvc_kit}")
+            message(STATUS "Auto-detected Qt6 at ${_qt_latest_msvc_kit}")
+        endif()
+    endif()
 endif()
 
 # ── Qt 6 ──────────────────────────────────────────────────────────────────────

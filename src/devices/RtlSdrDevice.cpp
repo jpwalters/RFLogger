@@ -275,14 +275,13 @@ void RtlSdrDevice::stopScanning()
         return;
 
     m_stopRequested.store(true);
+    m_scanning.store(false); // Immediate: UI/isScanning() reflects stopped state right away
 
     if (m_workerThread) {
-        m_workerThread->wait(5000);
+        m_workerThread->wait(5000); // Thread exits at next stop-check (~100ms max)
         delete m_workerThread;
         m_workerThread = nullptr;
     }
-
-    m_scanning.store(false);
 }
 
 bool RtlSdrDevice::isScanning() const
@@ -349,6 +348,10 @@ void RtlSdrDevice::runSweepLoop()
     QVector<double> sweepAmplitudes;
     sweepAmplitudes.reserve(totalPoints);
 
+    // Throttle partial sweep updates: emit at most at 25% / 50% / 75% of segments
+    // so the main thread is not flooded with data-copy events.
+    const int partialEvery = std::max(1, numSegments / 4);
+
     while (!m_stopRequested.load()) {
         sweepAmplitudes.clear();
 
@@ -392,17 +395,17 @@ void RtlSdrDevice::runSweepLoop()
                 sweepAmplitudes.append(segmentDbm[i]);
             }
 
-            // Emit partial sweep progress
-            int percent = static_cast<int>((seg + 1) * 100.0 / numSegments);
-            QMetaObject::invokeMethod(this, [this, percent]() {
-                emit sweepProgress(percent);
-            }, Qt::QueuedConnection);
-
-            // Emit partial sweep for real-time display
-            if (seg < numSegments - 1) {
+            // Throttled partial update: emit at 25% / 50% / 75% completion only.
+            // Emitting every segment floods the main thread event queue with
+            // large vector copies and triggers excessive QCustomPlot redraws.
+            const bool isLastSeg = (seg == numSegments - 1);
+            const bool isPartialBoundary = ((seg + 1) % partialEvery == 0);
+            if (!isLastSeg && isPartialBoundary) {
+                int percent = static_cast<int>((seg + 1) * 100.0 / numSegments);
                 SweepData partial(m_startFreqHz, stepSizeHz,
                                   sweepAmplitudes, QDateTime::currentDateTimeUtc());
-                QMetaObject::invokeMethod(this, [this, partial]() {
+                QMetaObject::invokeMethod(this, [this, percent, partial]() {
+                    emit sweepProgress(percent);
                     emit partialSweepReady(partial);
                 }, Qt::QueuedConnection);
             }
@@ -411,17 +414,34 @@ void RtlSdrDevice::runSweepLoop()
         if (m_stopRequested.load())
             break;
 
-        // Trim or pad to requested sweep points
-        if (sweepAmplitudes.size() > m_sweepPoints) {
-            sweepAmplitudes.resize(m_sweepPoints);
+        // Downsample to the requested sweep point count by averaging adjacent bins.
+        // Simple truncation (the previous approach) only kept the FIRST N raw bins
+        // which covered a fraction of the requested frequency span, producing
+        // a compressed/incorrect live trace vs max-hold.
+        if (static_cast<int>(sweepAmplitudes.size()) > m_sweepPoints) {
+            const int srcLen = static_cast<int>(sweepAmplitudes.size());
+            QVector<double> downsampled(m_sweepPoints);
+            double ratio = static_cast<double>(srcLen) / m_sweepPoints;
+            for (int i = 0; i < m_sweepPoints; ++i) {
+                int srcStart = static_cast<int>(i * ratio);
+                int srcEnd   = std::min(static_cast<int>((i + 1) * ratio), srcLen);
+                if (srcEnd <= srcStart) srcEnd = srcStart + 1;
+                double sum = 0.0;
+                for (int j = srcStart; j < srcEnd; ++j)
+                    sum += sweepAmplitudes[j];
+                downsampled[i] = sum / (srcEnd - srcStart);
+            }
+            sweepAmplitudes = std::move(downsampled);
         }
 
-        // Emit complete sweep
-        double finalStepSize = totalSpan / std::max(qsizetype(1), sweepAmplitudes.size() - 1);
+        // Emit complete sweep with correct step size for the actual point count
+        const int outPoints = static_cast<int>(sweepAmplitudes.size());
+        double finalStepSize = (outPoints > 1) ? totalSpan / (outPoints - 1) : 0.0;
         SweepData sweep(m_startFreqHz, finalStepSize,
                         sweepAmplitudes, QDateTime::currentDateTimeUtc());
 
         QMetaObject::invokeMethod(this, [this, sweep]() {
+            emit sweepProgress(100);
             emit sweepReady(sweep);
         }, Qt::QueuedConnection);
     }
