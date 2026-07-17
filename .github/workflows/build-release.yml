@@ -45,9 +45,13 @@ jobs:
           modules: 'qtserialport'
           cache: true
 
-      - name: Install Ninja
+      - name: Install Ninja (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
 
       - name: Set up MSVC dev environment
         if: runner.os == 'Windows'
@@ -80,7 +84,7 @@ jobs:
           -DRFLOGGER_VERSION="${{ env.RELEASE_VERSION }}"
           -DRFLOGGER_BUILD_TESTS=ON
           -DRFLOGGER_ENABLE_RTLSDR=OFF
-          ${{ runner.os == 'Linux' && '-GNinja' || '' }}
+          ${{ runner.os != 'Windows' && '-GNinja' || '' }}
           ${{ matrix.cmake_extra || '' }}
 
       - name: Build
