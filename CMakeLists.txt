@@ -79,6 +79,18 @@ add_library(qcustomplot STATIC
 target_link_libraries(qcustomplot PUBLIC Qt6::Widgets Qt6::PrintSupport)
 target_include_directories(qcustomplot PUBLIC "${QCUSTOMPLOT_SOURCE_DIR}")
 
+# qcustomplot.cpp is a single ~15k-line translation unit. Under the Release
+# build's -O2, Clang/AppleClang can consume very large amounts of memory and
+# time optimizing it. On the memory-constrained macOS CI runners this drives
+# the machine into swap and the build appears to hang (macOS does not OOM-kill,
+# it just grinds until the job times out). Cap optimization to -O1 for this
+# third-party target to keep peak memory/compile time reasonable, and silence
+# its warnings (consistent with the other bundled third-party targets).
+target_compile_options(qcustomplot PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-w>
+    $<$<AND:$<CXX_COMPILER_ID:Clang,AppleClang,GNU>,$<NOT:$<CONFIG:Debug>>>:-O1>
+)
+
 # ── External: KissFFT ─────────────────────────────────────────────────────────
 FetchContent_Declare(
     kissfft
