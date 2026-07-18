@@ -1,5 +1,6 @@
 #include "DeviceManager.h"
 #include "RFExplorerDevice.h"
+#include "RFExplorerEmulator.h"
 #include "TinySADevice.h"
 
 #ifdef RFLOGGER_HAS_RTLSDR
@@ -189,6 +190,46 @@ bool DeviceManager::connectDevice(const QString& portOrPath, DeviceType type)
     connect(device, &ISpectrumDevice::errorOccurred, this, &DeviceManager::errorOccurred);
 
     emit statusChanged(tr("Connected to %1").arg(device->deviceName()));
+    emit deviceConnected(device);
+    return true;
+}
+
+bool DeviceManager::startDemo(bool plus)
+{
+    disconnectDevice();
+
+    // Stop hotplug polling so a real serial port cannot hijack the demo session.
+    if (m_pollTimer)
+        m_pollTimer->stop();
+    if (m_autoConnectTimer)
+        m_autoConnectTimer->stop();
+
+    auto* device = new RFExplorerDevice(this);
+
+    const RFExplorerEmulator::Model model =
+        plus ? RFExplorerEmulator::plusDemoModel() : RFExplorerEmulator::Model{};
+    auto* emu = new RFExplorerEmulator(model, device); // parented → cleaned up with device
+    emu->setSweepInterval(80); // hardware-like cadence so the UI looks realistic
+
+    if (!device->connectTransport(emu)) {
+        delete device;
+        return false;
+    }
+
+    m_currentDevice = device;
+    m_connectedPort = QStringLiteral("DEMO");
+
+    connect(device, &ISpectrumDevice::connectionChanged, this, [this](bool connected) {
+        if (!connected) {
+            m_currentDevice = nullptr;
+            m_connectedPort.clear();
+            emit deviceDisconnected();
+            emit statusChanged(tr("Device disconnected — waiting for device..."));
+        }
+    });
+    connect(device, &ISpectrumDevice::errorOccurred, this, &DeviceManager::errorOccurred);
+
+    emit statusChanged(tr("Connected to %1 (demo)").arg(device->deviceName()));
     emit deviceConnected(device);
     return true;
 }

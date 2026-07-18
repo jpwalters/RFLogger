@@ -3,6 +3,7 @@
 #include "ISpectrumDevice.h"
 
 #include <QSerialPort>
+#include <QIODevice>
 #include <QByteArray>
 #include <QTimer>
 
@@ -39,6 +40,11 @@ public:
     // Test / diagnostic
     bool requestConfig();
 
+    // Test seam: attach an already-open QIODevice (e.g. an in-memory emulator)
+    // as the transport instead of opening a real serial port. Takes ownership
+    // of \a transport (it is re-parented to this device). Returns true on success.
+    bool connectTransport(QIODevice* transport);
+
 private slots:
     void onDataReady();
     void processDeferredBuffer();
@@ -49,21 +55,26 @@ private:
     static constexpr int MIN_SWEEP_POINTS_BASIC = 112;
     static constexpr int MAX_SWEEP_POINTS_BASIC = 4096;
     static constexpr int MIN_SWEEP_POINTS_PLUS = 112;
-    static constexpr int MAX_SWEEP_POINTS_PLUS = 4096;
-    // Application-level ceiling for high-resolution scans built by stitching
-    // multiple device sub-sweeps together. The device streams sub-bands that are
-    // accumulated into a single high-resolution sweep, so the effective point
-    // count is far higher than the per-sweep hardware limit above.
+    // PLUS models render high resolution on the device: up to 65535 points in a
+    // single sweep via SET_SWEEP_POINTS_LARGE ('Cj') + '$z' scan data. This is
+    // the documented hardware ceiling per the RF Explorer UART API.
+    static constexpr int MAX_SWEEP_POINTS_PLUS = 65535;
+    // Application-level ceiling for high-resolution scans. For PLUS models this
+    // matches the device's native single-sweep limit; for basic models it is the
+    // ceiling when stitching multiple sub-band sweeps together.
     static constexpr int MAX_ACCUMULATED_SWEEP_POINTS = 65535;
 
     void sendCommand(const QByteArray& cmd);
+    bool attachTransport(QIODevice* transport);
+    void flushTransport();
+    bool transportHasError() const;
     void processBuffer(bool isDeferred = false);
     void processConfigData(const QByteArray& data);
     void processScanData(const QByteArray& data, int sweepPoints);
     void processModelData(const QByteArray& data);
     void stripEosSequences(QByteArray& buffer);
 
-    QSerialPort* m_serial = nullptr;
+    QIODevice* m_serial = nullptr;
     QByteArray m_buffer;
 
     bool m_connected = false;

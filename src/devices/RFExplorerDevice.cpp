@@ -64,37 +64,65 @@ bool RFExplorerDevice::connectDevice(const QString& portName)
     if (m_connected)
         disconnectDevice();
 
-    m_serial = new QSerialPort(this);
-    m_serial->setPortName(portName);
-    m_serial->setBaudRate(BAUD_RATE);
-    m_serial->setDataBits(QSerialPort::Data8);
-    m_serial->setParity(QSerialPort::NoParity);
-    m_serial->setStopBits(QSerialPort::OneStop);
-    m_serial->setFlowControl(QSerialPort::NoFlowControl);
+    auto* serial = new QSerialPort(this);
+    serial->setPortName(portName);
+    serial->setBaudRate(BAUD_RATE);
+    serial->setDataBits(QSerialPort::Data8);
+    serial->setParity(QSerialPort::NoParity);
+    serial->setStopBits(QSerialPort::OneStop);
+    serial->setFlowControl(QSerialPort::NoFlowControl);
 
-    if (!m_serial->open(QIODevice::ReadWrite)) {
-        emit errorOccurred(tr("Failed to open %1: %2").arg(portName, m_serial->errorString()));
-        delete m_serial;
-        m_serial = nullptr;
+    if (!serial->open(QIODevice::ReadWrite)) {
+        emit errorOccurred(tr("Failed to open %1: %2").arg(portName, serial->errorString()));
+        delete serial;
         return false;
     }
 
-    connect(m_serial, &QSerialPort::readyRead, this, &RFExplorerDevice::onDataReady);
-    connect(m_serial, &QSerialPort::errorOccurred, this, [this](QSerialPort::SerialPortError error) {
-        if (error == QSerialPort::ResourceError && !m_disconnecting) {
-            qDebug() << "RF Explorer: device removed (ResourceError)";
-            // Mark as disconnecting immediately to stop all I/O
-            m_disconnecting = true;
-            m_scanning = false;
-            m_connected = false;
-            // Disconnect signals to prevent further callbacks
-            if (m_serial)
-                m_serial->disconnect(this);
-            // Defer actual cleanup to next event loop iteration —
-            // calling close()/deleteLater() inside errorOccurred crashes
-            QTimer::singleShot(0, this, &RFExplorerDevice::disconnectDevice);
-        }
-    });
+    return attachTransport(serial);
+}
+
+bool RFExplorerDevice::connectTransport(QIODevice* transport)
+{
+    if (m_connected)
+        disconnectDevice();
+
+    if (!transport)
+        return false;
+
+    if (!transport->isOpen() && !transport->open(QIODevice::ReadWrite)) {
+        emit errorOccurred(tr("Failed to open transport"));
+        return false;
+    }
+
+    return attachTransport(transport);
+}
+
+bool RFExplorerDevice::attachTransport(QIODevice* transport)
+{
+    m_serial = transport;
+    m_serial->setParent(this);
+
+    connect(m_serial, &QIODevice::readyRead, this, &RFExplorerDevice::onDataReady);
+
+    // Serial-port-specific removal handling (physical unplug). In-memory
+    // transports (e.g. the test emulator) do not emit this signal.
+    if (auto* sp = qobject_cast<QSerialPort*>(m_serial)) {
+        connect(sp, &QSerialPort::errorOccurred, this, [this](QSerialPort::SerialPortError error) {
+            if (error == QSerialPort::ResourceError && !m_disconnecting) {
+                qDebug() << "RF Explorer: device removed (ResourceError)";
+                // Mark as disconnecting immediately to stop all I/O
+                m_disconnecting = true;
+                m_scanning = false;
+                m_connected = false;
+                // Disconnect signals to prevent further callbacks
+                if (m_serial)
+                    m_serial->disconnect(this);
+                // Defer actual cleanup to next event loop iteration —
+                // calling close()/deleteLater() inside errorOccurred crashes
+                QTimer::singleShot(0, this, &RFExplorerDevice::disconnectDevice);
+            }
+        });
+    }
 
     m_connected = true;
     m_configReceived = false;
@@ -123,10 +151,10 @@ void RFExplorerDevice::disconnectDevice()
         if (m_serial->isOpen()) {
             // Only send HOLD command if the port is still healthy.
             // If the device was physically unplugged, writing will crash.
-            if (m_serial->error() == QSerialPort::NoError && !wasAlreadyDisconnecting) {
+            if (!transportHasError() && !wasAlreadyDisconnecting) {
                 QByteArray holdCmd = QByteArray("#\x04" "CH", 4);
                 m_serial->write(holdCmd);
-                m_serial->flush();
+                flushTransport();
                 QThread::msleep(50);
             }
             m_serial->close();
@@ -206,14 +234,22 @@ bool RFExplorerDevice::configure(double startFreqHz, double stopFreqHz, int swee
     // before it starts the new sweep stream.
     {
         if (m_isPlusModel) {
+            // PLUS models render high resolution on the device. Send the full
+            // requested point count, clamped only to the documented hardware
+            // ceiling (MAX_SWEEP_POINTS_PLUS = 65535). Clamping lower than this
+            // would throw away resolution the device can actually deliver.
+            int clamped = sweepPoints;
+            if (clamped > MAX_SWEEP_POINTS_PLUS) clamped = MAX_SWEEP_POINTS_PLUS;
+            if (clamped < MIN_SWEEP_POINTS_PLUS) clamped = MIN_SWEEP_POINTS_PLUS;
+            actualPoints = clamped;
             // SET_SWEEP_POINTS_LARGE: '#' + 0x06 + 'Cj' + MSB + LSB
             QByteArray sweepCmd(6, '\0');
             sweepCmd[0] = '#';
             sweepCmd[1] = 0x06;
             sweepCmd[2] = 'C';
             sweepCmd[3] = 'j';
-            sweepCmd[4] = static_cast<char>((sweepPoints >> 8) & 0xFF);
-            sweepCmd[5] = static_cast<char>(sweepPoints & 0xFF);
+            sweepCmd[4] = static_cast<char>((clamped >> 8) & 0xFF);
+            sweepCmd[5] = static_cast<char>(clamped & 0xFF);
             sendCommand(sweepCmd);
         } else {
             // SET_SWEEP_POINTS (high-res): '#' + 0x05 + 'CJ' + encoded_byte
@@ -306,11 +342,24 @@ bool RFExplorerDevice::isScanning() const
 
 void RFExplorerDevice::sendCommand(const QByteArray& cmd)
 {
-    if (!m_serial || !m_serial->isOpen() || m_serial->error() != QSerialPort::NoError)
+    if (!m_serial || !m_serial->isOpen() || transportHasError())
         return;
 
     m_serial->write(cmd);
-    m_serial->flush();
+    flushTransport();
+}
+
+void RFExplorerDevice::flushTransport()
+{
+    if (auto* sp = qobject_cast<QSerialPort*>(m_serial))
+        sp->flush();
+}
+
+bool RFExplorerDevice::transportHasError() const
+{
+    if (auto* sp = qobject_cast<QSerialPort*>(m_serial))
+        return sp->error() != QSerialPort::NoError;
+    return false;
 }
 
 void RFExplorerDevice::onDataReady()
@@ -556,7 +605,7 @@ void RFExplorerDevice::processScanData(const QByteArray& data, int sweepPoints)
         amplitudes[i] = static_cast<double>(raw) / AMPLITUDE_DIVISOR;
     }
 
-    // If the device delivers exactly the requested point count in one message,
+    // If the device delivers at least the requested point count in one message,
     // emit directly without accumulation overhead.
     if (sweepPoints >= m_accumTarget) {
         emit sweepProgress(100);
@@ -567,6 +616,10 @@ void RFExplorerDevice::processScanData(const QByteArray& data, int sweepPoints)
 
     // Sub-sweep accumulation: the device sends the full range in multiple
     // smaller sweeps.  Append each chunk and emit once the target is reached.
+    // The accumulated result is labelled with the requested (desired) frequency
+    // range so the stitched sweep always spans exactly what the user asked for.
+    // Using the single-sweep step here instead would stretch the frequency axis
+    // to several times the requested span (the "thin green line" regression).
     if (m_accumBuffer.isEmpty()) {
         m_accumStartHz = m_startFreqHz;
         m_accumStepHz = m_freqStepHz;
@@ -577,18 +630,24 @@ void RFExplorerDevice::processScanData(const QByteArray& data, int sweepPoints)
     int pct = static_cast<int>(m_accumBuffer.size()) * 100 / m_accumTarget;
     emit sweepProgress(std::min(pct, 99));
 
-    // Emit partial sweep so the UI can graph data as it arrives
-    // Use actual configured frequency range (m_accumStartHz, m_accumStepHz) not desired range
-    SweepData partial(m_accumStartHz, m_accumStepHz, m_accumBuffer);
+    // Emit partial sweep so the UI can graph data as it arrives.
+    double partialStepHz = (m_accumBuffer.size() > 1)
+        ? (m_desiredStopHz - m_desiredStartHz) / (m_accumTarget - 1)
+        : m_accumStepHz;
+    SweepData partial(m_desiredStartHz, partialStepHz, m_accumBuffer);
     emit partialSweepReady(partial);
 
     if (static_cast<int>(m_accumBuffer.size()) >= m_accumTarget) {
         // Trim to exact target in case the device overshot slightly
         m_accumBuffer.resize(m_accumTarget);
 
-        // Use actual configured frequency range for final sweep
+        // Recalculate step size for the full accumulated range.
+        double fullStepHz = (m_accumTarget > 1)
+            ? (m_desiredStopHz - m_desiredStartHz) / (m_accumTarget - 1)
+            : 0.0;
+
         emit sweepProgress(100);
-        SweepData sweep(m_accumStartHz, m_accumStepHz, m_accumBuffer);
+        SweepData sweep(m_desiredStartHz, fullStepHz, m_accumBuffer);
         emit sweepReady(sweep);
         m_accumBuffer.clear();
     }

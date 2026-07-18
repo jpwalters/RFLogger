@@ -150,6 +150,15 @@ MainWindow::~MainWindow()
 {
 }
 
+void MainWindow::startDemoMode(bool plus)
+{
+    statusBar()->showMessage(tr("Starting demo mode (emulated RF Explorer)..."));
+    // Defer to the event loop so the window is shown before scanning begins.
+    QTimer::singleShot(0, this, [this, plus]() {
+        m_deviceManager->startDemo(plus);
+    });
+}
+
 void MainWindow::createMenus()
 {
     // File menu

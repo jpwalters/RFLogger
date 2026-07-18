@@ -22,5 +22,13 @@ int main(int argc, char* argv[])
     MainWindow window;
     window.show();
 
+    // Hardware-free demo/visualisation mode. Use --demo (PLUS model) or
+    // --demo-basic (basic model, exercises the accumulation path).
+    const QStringList args = app.arguments();
+    if (args.contains("--demo-basic"))
+        window.startDemoMode(/*plus=*/false);
+    else if (args.contains("--demo"))
+        window.startDemoMode(/*plus=*/true);
+
     return app.exec();
 }

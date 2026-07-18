@@ -6,6 +6,7 @@ set(TEST_SOURCES
     tst_SessionSerializer.cpp
     tst_SignalClassifier.cpp
     tst_InterferenceMonitor.cpp
+    tst_RFExplorerDevice.cpp
 )
 
 # Shared production sources exercised by the tests. Compile them exactly once
@@ -21,14 +22,19 @@ add_library(rflogger_testable STATIC
     ${CMAKE_SOURCE_DIR}/src/data/InterferenceMonitor.cpp
     ${CMAKE_SOURCE_DIR}/src/export/WwbExporter.cpp
     ${CMAKE_SOURCE_DIR}/src/export/GenericCsvExporter.cpp
+    ${CMAKE_SOURCE_DIR}/src/devices/ISpectrumDevice.h
+    ${CMAKE_SOURCE_DIR}/src/devices/RFExplorerDevice.cpp
+    ${CMAKE_SOURCE_DIR}/src/devices/RFExplorerEmulator.cpp
 )
 target_include_directories(rflogger_testable PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}/generated
+    ${CMAKE_CURRENT_SOURCE_DIR}
 )
 target_link_libraries(rflogger_testable PUBLIC
     Qt6::Core
     Qt6::Gui
+    Qt6::SerialPort
 )
 
 foreach(test_src ${TEST_SOURCES})

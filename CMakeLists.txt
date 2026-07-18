@@ -191,6 +191,8 @@ set(RFLOGGER_SOURCES
     src/devices/DeviceManager.cpp
     src/devices/RFExplorerDevice.h
     src/devices/RFExplorerDevice.cpp
+    src/devices/RFExplorerEmulator.h
+    src/devices/RFExplorerEmulator.cpp
     src/devices/TinySADevice.h
     src/devices/TinySADevice.cpp
     src/export/WwbExporter.h

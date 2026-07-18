@@ -30,6 +30,9 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override;
 
+    // Start a hardware-free demo session using the built-in emulator.
+    void startDemoMode(bool plus = true);
+
 protected:
     void closeEvent(QCloseEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;

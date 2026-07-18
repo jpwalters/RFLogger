@@ -30,6 +30,11 @@ public:
     void disconnectDevice();
     void shutdown();
 
+    // Start a hardware-free demo session driven by the in-memory RF Explorer
+    // emulator, so the full Connect → Scan → Export flow can be exercised
+    // without a physical device. Pass plus=true to emulate a PLUS model.
+    bool startDemo(bool plus = true);
+
     ISpectrumDevice* currentDevice() const { return m_currentDevice; }
     bool isConnected() const { return m_currentDevice && m_currentDevice->isConnected(); }
 
