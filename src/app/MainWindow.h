@@ -112,4 +112,9 @@ private:
     double m_fullResStartHz = 0.0;
     double m_fullResStopHz = 0.0;
     int m_fullResPoints = 0;
+
+    // Set the recommended sweep-point count only once per connection so that
+    // repeated device config echoes (e.g. RF Explorer sub-band configs during a
+    // high-resolution scan) do not overwrite the user's chosen point count.
+    bool m_sweepPointsInitialized = false;
 };

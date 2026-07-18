@@ -30,6 +30,7 @@ public:
     double maxFreqHz() const override { return m_maxFreqHz; }
     int minSweepPoints() const override;
     int maxSweepPoints() const override;
+    int maxAccumulatedSweepPoints() const override { return MAX_ACCUMULATED_SWEEP_POINTS; }
 
     QString firmwareVersion() const override { return m_firmwareVersion; }
     QString serialNumber() const override { return m_serialNumber; }
@@ -49,6 +50,11 @@ private:
     static constexpr int MAX_SWEEP_POINTS_BASIC = 4096;
     static constexpr int MIN_SWEEP_POINTS_PLUS = 112;
     static constexpr int MAX_SWEEP_POINTS_PLUS = 4096;
+    // Application-level ceiling for high-resolution scans built by stitching
+    // multiple device sub-sweeps together. The device streams sub-bands that are
+    // accumulated into a single high-resolution sweep, so the effective point
+    // count is far higher than the per-sweep hardware limit above.
+    static constexpr int MAX_ACCUMULATED_SWEEP_POINTS = 65535;
 
     void sendCommand(const QByteArray& cmd);
     void processBuffer(bool isDeferred = false);

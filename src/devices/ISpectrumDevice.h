@@ -31,6 +31,13 @@ public:
     virtual int minSweepPoints() const = 0;
     virtual int maxSweepPoints() const = 0;
 
+    // Maximum number of points the application can produce for a single sweep.
+    // Defaults to the device's per-sweep hardware limit, but devices that stitch
+    // multiple sub-sweeps together (e.g. RF Explorer high-resolution mode) can
+    // report a higher accumulated limit here so the UI is not capped at the
+    // per-sweep hardware value.
+    virtual int maxAccumulatedSweepPoints() const { return maxSweepPoints(); }
+
     virtual QString firmwareVersion() const { return {}; }
     virtual QString serialNumber() const { return {}; }
     virtual QString modelName() const { return deviceName(); }

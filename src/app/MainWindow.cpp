@@ -85,6 +85,7 @@ MainWindow::MainWindow(QWidget* parent)
         statusBar()->showMessage(tr("Connected to %1").arg(device->deviceName()));
     });
     connect(m_deviceManager, &DeviceManager::deviceDisconnected, this, [this]() {
+        m_sweepPointsInitialized = false;
         m_frequencyListPanel->setDemodulationAvailable(false);
         statusBar()->showMessage(tr("Device disconnected — waiting for device..."));
     });
@@ -762,17 +763,31 @@ void MainWindow::updateDeviceLimits(ISpectrumDevice* device)
         if (minMHz > 0 && maxMHz > 0)
             m_captureControls->setFrequencyLimits(minMHz, maxMHz);
 
-        // Always recalculate sweep points — minSweepPoints/maxSweepPoints are
-        // valid as soon as the device model is known (defaults to conservative
-        // basic-model limits until PLUS capability is confirmed).
-        m_captureControls->setSweepPointRange(device->minSweepPoints(), device->maxSweepPoints());
+        // Never touch the sweep-point controls while a scan is running. During a
+        // high-resolution scan the device streams many sub-band config echoes,
+        // each of which re-emits deviceInfoUpdated — resetting the spin here
+        // would clobber the user's selection mid-scan.
+        if (device->isScanning())
+            return;
 
-        double startHz = m_captureControls->startFreqMHz() * 1e6;
-        double stopHz = m_captureControls->stopFreqMHz() * 1e6;
-        int recommended = static_cast<int>(std::ceil((stopHz - startHz) / 10000.0)) + 1;
-        recommended = std::max(recommended, device->minSweepPoints());
-        recommended = std::min(recommended, device->maxSweepPoints());
-        m_captureControls->setSweepPoints(recommended);
+        // Cap the UI to the application's accumulated point limit (which stitches
+        // multiple device sub-sweeps together), NOT the device's per-sweep
+        // hardware limit — otherwise high-resolution scans get locked to the
+        // per-sweep value (e.g. 4096 for RF Explorer).
+        int maxPoints = device->maxAccumulatedSweepPoints();
+        m_captureControls->setSweepPointRange(device->minSweepPoints(), maxPoints);
+
+        // Set the recommended point count only once per connection so repeated
+        // config echoes do not overwrite a value the user has chosen.
+        if (!m_sweepPointsInitialized) {
+            m_sweepPointsInitialized = true;
+            double startHz = m_captureControls->startFreqMHz() * 1e6;
+            double stopHz = m_captureControls->stopFreqMHz() * 1e6;
+            int recommended = static_cast<int>(std::ceil((stopHz - startHz) / 10000.0)) + 1;
+            recommended = std::max(recommended, device->minSweepPoints());
+            recommended = std::min(recommended, maxPoints);
+            m_captureControls->setSweepPoints(recommended);
+        }
     });
 }
 
