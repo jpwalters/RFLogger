@@ -115,8 +115,19 @@ jobs:
           macdeployqt "$APP"
           # For non-release builds, create an unsigned DMG for testing
           if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
-            hdiutil create -volname RFLogger -srcfolder "$APP" \
-              -ov -format UDZO "build/RFLogger.dmg"
+            # hdiutil intermittently fails with "Resource busy" on CI runners
+            # (Spotlight/mds indexing or a stale mounted volume). Retry a few times.
+            hdiutil detach "/Volumes/RFLogger" >/dev/null 2>&1 || true
+            for attempt in 1 2 3 4 5; do
+              if hdiutil create -volname RFLogger -srcfolder "$APP" \
+                   -ov -format UDZO "build/RFLogger.dmg"; then
+                break
+              fi
+              echo "hdiutil create failed (attempt $attempt), retrying in 10s..."
+              hdiutil detach "/Volumes/RFLogger" >/dev/null 2>&1 || true
+              sleep 10
+              [ "$attempt" = 5 ] && exit 1
+            done
             mv build/RFLogger.dmg "${{ matrix.artifact }}.dmg"
           fi
 
@@ -225,9 +236,20 @@ jobs:
               -exec sh -c 'codesign -dvv "$1" 2>/dev/null || echo "UNSIGNED: $1"' _ {} \;
           }
 
-          # Create DMG after signing
-          hdiutil create -volname RFLogger -srcfolder "$APP" \
-            -ov -format UDZO "build/RFLogger.dmg"
+          # Create DMG after signing.
+          # hdiutil intermittently fails with "Resource busy" on CI runners
+          # (Spotlight/mds indexing or a stale mounted volume). Retry a few times.
+          hdiutil detach "/Volumes/RFLogger" >/dev/null 2>&1 || true
+          for attempt in 1 2 3 4 5; do
+            if hdiutil create -volname RFLogger -srcfolder "$APP" \
+                 -ov -format UDZO "build/RFLogger.dmg"; then
+              break
+            fi
+            echo "hdiutil create failed (attempt $attempt), retrying in 10s..."
+            hdiutil detach "/Volumes/RFLogger" >/dev/null 2>&1 || true
+            sleep 10
+            [ "$attempt" = 5 ] && exit 1
+          done
           DMG="build/RFLogger.dmg"
 
           # Decode API key for notarytool
