@@ -105,19 +105,36 @@ private slots:
 
         QVERIFY(dev.deviceName().contains("PLUS"));
 
-        // Request a high-resolution point count above the device per-sweep limit.
-        QVERIFY(dev.configure(470e6, 700e6, 23001));
+        QSignalSpy sweepSpy(&dev, &ISpectrumDevice::sweepReady);
+
+        // Request a high-resolution point count far above the per-sweep limit.
+        const int fullPoints = 23001;
+        QVERIFY(dev.configure(470e6, 700e6, fullPoints));
+        QVERIFY(dev.startScanning());
         QTest::qWait(50);
 
-        qInfo() << "PLUS: host requested points ->" << emu->lastRequestedPoints()
-                << "device max ->" << 65535
-                << "device configured ->" << emu->configuredPoints();
+        qInfo() << "PLUS single-sweep: host requested ->" << emu->lastRequestedPoints()
+                << "device configured ->" << emu->configuredPoints()
+                << "(per-sweep cap 4096)";
 
-        // PLUS renders high resolution on the device: the full requested point
-        // count (up to 65535) must reach the device unclamped so the user gets
-        // the detailed scan they asked for.
-        QCOMPARE(emu->lastRequestedPoints(), 23001);
-        QCOMPARE(emu->configuredPoints(), 23001);
+        // Real PLUS hardware sweeps a very large single request far too slowly
+        // (an 8192-point sweep never even completes) and returns sparse data, so
+        // the device request must be clamped to MAX_SWEEP_POINTS_PLUS (4096) no
+        // matter how many points the caller asks for. Finer detail across the
+        // span is built up over time via Max-Hold of successive sweeps, not by
+        // a single oversized (or reconfigured multi-band) sweep.
+        QCOMPARE(emu->lastRequestedPoints(), 4096);
+        QCOMPARE(emu->configuredPoints(), 4096);
+
+        // A sweep spanning the requested range must still be produced.
+        QTRY_VERIFY_WITH_TIMEOUT(sweepSpy.count() >= 1, 5000);
+        const SweepData s = qvariant_cast<SweepData>(sweepSpy.last().at(0));
+        qInfo() << "Sweep: points=" << s.count()
+                << "start(MHz)=" << s.startFreqHz() / 1e6
+                << "stop(MHz)=" << s.stopFreqHz() / 1e6;
+        QCOMPARE(s.startFreqHz() / 1e6, 470.0);
+        QVERIFY2(qAbs(s.stopFreqHz() / 1e6 - 700.0) < 1.0,
+                 "sweep stretched the frequency axis beyond the requested span");
     }
 };
 

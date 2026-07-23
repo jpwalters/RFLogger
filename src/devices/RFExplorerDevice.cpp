@@ -2,6 +2,7 @@
 
 #include <QDebug>
 #include <QThread>
+#include <algorithm>
 #include <cmath>
 
 // RF Explorer UART API: https://github.com/RFExplorer/RFExplorer-for-.NET/wiki/RF-Explorer-UART-API-interface-specification
@@ -226,61 +227,53 @@ bool RFExplorerDevice::configure(double startFreqHz, double stopFreqHz, int swee
     // data from the device's internal buffer.  Discard it.
     m_discardCount = 1;
 
-    // Compute the actual sweep points the device will use (basic models
-    // snap to multiples of 16).
     int actualPoints = sweepPoints;
 
     // Set sweep points BEFORE frequency config so the device applies both
     // before it starts the new sweep stream.
-    {
-        if (m_isPlusModel) {
-            // PLUS models render high resolution on the device. Send the full
-            // requested point count, clamped only to the documented hardware
-            // ceiling (MAX_SWEEP_POINTS_PLUS = 65535). Clamping lower than this
-            // would throw away resolution the device can actually deliver.
-            int clamped = sweepPoints;
-            if (clamped > MAX_SWEEP_POINTS_PLUS) clamped = MAX_SWEEP_POINTS_PLUS;
-            if (clamped < MIN_SWEEP_POINTS_PLUS) clamped = MIN_SWEEP_POINTS_PLUS;
-            actualPoints = clamped;
-            // SET_SWEEP_POINTS_LARGE: '#' + 0x06 + 'Cj' + MSB + LSB
-            QByteArray sweepCmd(6, '\0');
-            sweepCmd[0] = '#';
-            sweepCmd[1] = 0x06;
-            sweepCmd[2] = 'C';
-            sweepCmd[3] = 'j';
-            sweepCmd[4] = static_cast<char>((clamped >> 8) & 0xFF);
-            sweepCmd[5] = static_cast<char>(clamped & 0xFF);
-            sendCommand(sweepCmd);
-        } else {
-            // SET_SWEEP_POINTS (high-res): '#' + 0x05 + 'CJ' + encoded_byte
-            // Snap to multiple of 16; encoded value = (points / 16) - 1
-            int snapped = (sweepPoints / 16) * 16;
-            if (snapped < 16) snapped = 16;
-            if (snapped > MAX_SWEEP_POINTS_BASIC) snapped = MAX_SWEEP_POINTS_BASIC;
-            actualPoints = snapped;
-            QByteArray sweepCmd(5, '\0');
-            sweepCmd[0] = '#';
-            sweepCmd[1] = 0x05;
-            sweepCmd[2] = 'C';
-            sweepCmd[3] = 'J';
-            sweepCmd[4] = static_cast<char>((snapped / 16) - 1);
-            sendCommand(sweepCmd);
-        }
+    if (m_isPlusModel) {
+        // PLUS models render resolution on the device via SET_SWEEP_POINTS_LARGE.
+        // Clamp to MAX_SWEEP_POINTS_PLUS (4096): asking real PLUS hardware for a
+        // much larger single sweep makes it crawl (~10 s/sweep at 4096, and an
+        // 8192-point sweep never even completes) and return sparse data.
+        int clamped = std::clamp(sweepPoints, MIN_SWEEP_POINTS_PLUS, MAX_SWEEP_POINTS_PLUS);
+        actualPoints = clamped;
+        // SET_SWEEP_POINTS_LARGE: '#' + 0x06 + 'Cj' + MSB + LSB
+        QByteArray sweepCmd(6, '\0');
+        sweepCmd[0] = '#';
+        sweepCmd[1] = 0x06;
+        sweepCmd[2] = 'C';
+        sweepCmd[3] = 'j';
+        sweepCmd[4] = static_cast<char>((clamped >> 8) & 0xFF);
+        sweepCmd[5] = static_cast<char>(clamped & 0xFF);
+        sendCommand(sweepCmd);
+    } else {
+        // SET_SWEEP_POINTS (high-res): '#' + 0x05 + 'CJ' + encoded_byte
+        // Snap to multiple of 16; encoded value = (points / 16) - 1
+        int snapped = (sweepPoints / 16) * 16;
+        if (snapped < 16) snapped = 16;
+        if (snapped > MAX_SWEEP_POINTS_BASIC) snapped = MAX_SWEEP_POINTS_BASIC;
+        actualPoints = snapped;
+        QByteArray sweepCmd(5, '\0');
+        sweepCmd[0] = '#';
+        sweepCmd[1] = 0x05;
+        sweepCmd[2] = 'C';
+        sweepCmd[3] = 'J';
+        sweepCmd[4] = static_cast<char>((snapped / 16) - 1);
+        sendCommand(sweepCmd);
     }
 
     // SET_CONFIG: '#' + 0x20 + 'C2-F:' + start_khz(7 digits) + ',' + stop_khz(7 digits) + ',top_dBm(4 chars),bottom_dBm(4 chars)'
-    // start/stop in kHz, 7-digit zero-padded; amplitude fields are 4 ASCII chars each (e.g. "-010","-120")
     int startKhz = static_cast<int>(std::floor(startFreqHz / 1000.0));
     int stopKhz = static_cast<int>(std::floor(stopFreqHz / 1000.0));
 
     QString startStr = QString("%1").arg(startKhz, 7, 10, QChar('0'));
     QString stopStr = QString("%1").arg(stopKhz, 7, 10, QChar('0'));
 
-    // Amplitude range: top dBm and bottom dBm (4 chars each per UART API spec)
     QString configPayload = QString("C2-F:%1,%2,-010,-120").arg(startStr, stopStr);
     QByteArray cmd;
     cmd.append('#');
-    cmd.append(static_cast<char>(configPayload.length() + 2)); // +2 for '#' and length byte = 32
+    cmd.append(static_cast<char>(configPayload.length() + 2)); // +2 for '#' and length byte
     cmd.append(configPayload.toLatin1());
     sendCommand(cmd);
 

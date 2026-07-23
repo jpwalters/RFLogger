@@ -55,14 +55,21 @@ private:
     static constexpr int MIN_SWEEP_POINTS_BASIC = 112;
     static constexpr int MAX_SWEEP_POINTS_BASIC = 4096;
     static constexpr int MIN_SWEEP_POINTS_PLUS = 112;
-    // PLUS models render high resolution on the device: up to 65535 points in a
-    // single sweep via SET_SWEEP_POINTS_LARGE ('Cj') + '$z' scan data. This is
-    // the documented hardware ceiling per the RF Explorer UART API.
-    static constexpr int MAX_SWEEP_POINTS_PLUS = 65535;
-    // Application-level ceiling for high-resolution scans. For PLUS models this
-    // matches the device's native single-sweep limit; for basic models it is the
-    // ceiling when stitching multiple sub-band sweeps together.
-    static constexpr int MAX_ACCUMULATED_SWEEP_POINTS = 65535;
+    // Per-sweep ceiling for PLUS models. The SET_SWEEP_POINTS_LARGE ('Cj')
+    // command can encode up to 65535, but real PLUS hardware (e.g. WSUB1G_PLUS)
+    // sweeps such a large single request extremely slowly (~2 min/sweep) and
+    // returns sparse, unusable data. 4096 is the hardware-validated value: it
+    // keeps sweeps fast while staying granular (~44 kHz steps over 180 MHz).
+    static constexpr int MAX_SWEEP_POINTS_PLUS = 4096;
+    // Application-level ceiling for a single scan request. Kept equal to the
+    // per-sweep device limit so the device is never asked for more points than
+    // it can deliver in one fast, reliable sweep. Splitting a wide span into
+    // multiple sub-band sweeps and stitching them was tried and reverted: the
+    // PLUS hardware sweeps ~10 s per 4096-point band and keeps streaming the
+    // OLD range for a sweep or two after each reconfigure, so a stitched scan
+    // took minutes and captured stale/misaligned sub-bands. Detail across a
+    // span is instead built up over time via Max-Hold of successive sweeps.
+    static constexpr int MAX_ACCUMULATED_SWEEP_POINTS = 4096;
 
     void sendCommand(const QByteArray& cmd);
     bool attachTransport(QIODevice* transport);
