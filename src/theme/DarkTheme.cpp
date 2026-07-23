@@ -3,6 +3,63 @@
 #include <QApplication>
 #include <QPalette>
 #include <QStyleFactory>
+#include <QWidget>
+
+#ifdef _WIN32
+#include <QEvent>
+#include <QObject>
+#include <windows.h>
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
+
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
+
+namespace
+{
+// Event filter that applies the dark title bar to every top-level window when
+// it is shown or acquires a native handle. Installed once on the QApplication
+// so dialogs and future windows are themed automatically.
+class TitleBarThemer : public QObject
+{
+public:
+    using QObject::QObject;
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* event) override
+    {
+        const QEvent::Type type = event->type();
+        if (type == QEvent::Show || type == QEvent::WinIdChange)
+        {
+            if (auto* widget = qobject_cast<QWidget*>(obj))
+            {
+                if (widget->isWindow())
+                    DarkTheme::applyDarkTitleBar(widget);
+            }
+        }
+        return QObject::eventFilter(obj, event);
+    }
+};
+} // namespace
+#endif // _WIN32
+
+void DarkTheme::applyDarkTitleBar(QWidget* window)
+{
+#ifdef _WIN32
+    if (!window || !window->isWindow())
+        return;
+
+    const HWND hwnd = reinterpret_cast<HWND>(window->winId());
+    if (!hwnd)
+        return;
+
+    const BOOL enabled = TRUE;
+    DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &enabled, sizeof(enabled));
+#else
+    Q_UNUSED(window);
+#endif
+}
 
 void DarkTheme::apply(QApplication& app)
 {
@@ -163,4 +220,10 @@ void DarkTheme::apply(QApplication& app)
             height: 0;
         }
     )");
+
+#ifdef _WIN32
+    // Theme the native title bar of every top-level window (main window and
+    // dialogs) so it matches the dark palette instead of staying light.
+    app.installEventFilter(new TitleBarThemer(&app));
+#endif
 }
